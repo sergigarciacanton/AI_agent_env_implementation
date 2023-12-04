@@ -4,6 +4,8 @@ import pika
 import json
 import ctypes
 import socket
+import platform
+from CAV import CAV
 
 
 class Environment:
@@ -11,6 +13,7 @@ class Environment:
     def __init__(self, logger, general):
         self.fec_list = []
         self.vnf_list = []
+        self.cav = None
         self.state_changed = False
         self.logger = logger
         self.general = general
@@ -21,6 +24,7 @@ class Environment:
         self.subscribe_thread = threading.Thread(target=self.subscribe, args=(self.rabbit_conn, 'fec vnf'))
         self.subscribe_thread.daemon = True
         self.subscribe_thread.start()
+        self.cav_thread = None
 
     def subscribe(self, conn, key_string):
         channel = conn.channel()
@@ -49,9 +53,14 @@ class Environment:
 
         channel.start_consuming()
 
+    def start_cav(self):
+        self.cav = CAV(platform.system(), self.general, self.logger)
+
     def reset(self):
         # Reset the environment to its initial state
         # Return the initial observation
+        self.cav_thread = threading.Thread(target=self.start_cav)
+        self.cav_thread.start()
         while not self.state_changed:
             time.sleep(0.001)
         self.state_changed = False
@@ -70,7 +79,7 @@ class Environment:
             else:
                 i += 1
         host = self.fec_list[i]['ip']
-        port = int(self.general['fec_port'])
+        port = int(self.general['agent_fec_port'])
 
         fec_socket = socket.socket()
         fec_socket.connect((host, port))
@@ -94,6 +103,7 @@ class Environment:
             next_obs = None
             reward = 0
             terminated = True
+            self.cav_thread.join()
         info = None
         return next_obs, reward, terminated, info
 

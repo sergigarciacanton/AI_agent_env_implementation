@@ -132,11 +132,11 @@ stream_handler = logging.StreamHandler(sys.stdout)
 stream_handler.setFormatter(ColoredFormatter('%(log_color)s%(message)s'))
 logger.addHandler(stream_handler)
 logging.getLogger('pika').setLevel(logging.WARNING)
-
 env = Environment(logger, general)
 try:
 
-    for episode in range(1):
+    for episode in range(100):
+        logger.info('[I] Starting new episode')
         obs, info = env.reset()
         episode_reward = 0
         logger.info('[I] Got new observation: ' + str(obs))
