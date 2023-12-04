@@ -11,8 +11,8 @@ from CAV import CAV
 class Environment:
     # Initialize any parameters or variables needed for the environment
     def __init__(self, logger, general):
-        self.fec_list = []
-        self.vnf_list = []
+        self.fec_list = dict()
+        self.vnf_list = dict()
         self.cav = None
         self.state_changed = False
         self.logger = logger
@@ -64,7 +64,7 @@ class Environment:
         while not self.state_changed:
             time.sleep(0.001)
         self.state_changed = False
-        initial_obs = dict(vnf=self.vnf_list[0], fec_status=self.fec_list)
+        initial_obs = dict(vnf=self.vnf_list["1"], fec_status=self.fec_list)
         info = None
         return initial_obs, info
 
@@ -72,13 +72,7 @@ class Environment:
         # Take an action in the environment
         # Update the state, provide a reward, and check for termination
         # Return the next observation, reward, termination flag, and additional information
-        i = 0
-        while i < len(self.fec_list):
-            if self.fec_list[i]['fec_id'] == fec_id:
-                break
-            else:
-                i += 1
-        host = self.fec_list[i]['ip']
+        host = self.fec_list["0"]['ip']  # CAMBIAR POR fec_id!!!
         port = int(self.general['agent_fec_port'])
 
         fec_socket = socket.socket()
@@ -96,7 +90,7 @@ class Environment:
             time.sleep(0.001)
         self.state_changed = False
         if len(self.vnf_list) > 0:
-            next_obs = dict(vnf=self.vnf_list[0], fec_status=self.fec_list)
+            next_obs = dict(vnf=self.vnf_list["1"], fec_status=self.fec_list)
             reward = 0
             terminated = False
         else:

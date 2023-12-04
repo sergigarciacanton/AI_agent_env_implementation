@@ -157,16 +157,16 @@ class CAV:
             return
 
     def get_ip_to_connect(self):
-        if self.my_vnf['source'] == 1 or self.my_vnf['source'] == 2 or self.my_vnf['source'] == 5\
+        if self.my_vnf['source'] == 1 or self.my_vnf['source'] == 2 or self.my_vnf['source'] == 5 \
                 or self.my_vnf['source'] == 6:
             return self.general['fec_0_ip']
-        elif self.my_vnf['source'] == 3 or self.my_vnf['source'] == 4 or self.my_vnf['source'] == 7\
+        elif self.my_vnf['source'] == 3 or self.my_vnf['source'] == 4 or self.my_vnf['source'] == 7 \
                 or self.my_vnf['source'] == 8:
             return self.general['fec_1_ip']
-        elif self.my_vnf['source'] == 9 or self.my_vnf['source'] == 10 or self.my_vnf['source'] == 13\
+        elif self.my_vnf['source'] == 9 or self.my_vnf['source'] == 10 or self.my_vnf['source'] == 13 \
                 or self.my_vnf['source'] == 14:
             return self.general['fec_2_ip']
-        elif self.my_vnf['source'] == 11 or self.my_vnf['source'] == 12 or self.my_vnf['source'] == 15\
+        elif self.my_vnf['source'] == 11 or self.my_vnf['source'] == 12 or self.my_vnf['source'] == 15 \
                 or self.my_vnf['source'] == 16:
             return self.general['fec_3_ip']
         else:
@@ -217,7 +217,8 @@ class CAV:
             if self.system_os == 'Windows':
                 while not self.connected:
                     process_connect = subprocess.Popen(
-                        self.general['wifi_handler_file'] + ' /ConnectAP "' + self.general['wifi_ssid'] + '" "' + address + '"',
+                        self.general['wifi_handler_file'] + ' /ConnectAP "' + self.general[
+                            'wifi_ssid'] + '" "' + address + '"',
                         shell=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE)
@@ -349,7 +350,8 @@ class CAV:
                 if wireshark_if != 'n' and wireshark_if != 'N':
                     script_path = os.path.dirname(os.path.realpath(__file__))
                     os.system(
-                        "sudo screen -S ue-wireshark -m -d sudo wireshark -i " + self.general['wlan_if_name'] + " -k -w " +
+                        "sudo screen -S ue-wireshark -m -d sudo wireshark -i " + self.general[
+                            'wlan_if_name'] + " -k -w " +
                         script_path + "/logs/ue-wireshark.pcap")
                 video_if = self.general['video_if']
             elif self.system_os == 'Windows':
@@ -372,7 +374,7 @@ class CAV:
                                    ram=random_vnf['ram'], bw=random_vnf['bw'],
                                    previous_node=random_vnf['source'],
                                    current_node=random_vnf['source'], cav_fec=self.fec_id,
-                                   time_steps=-1, user_id=self.user_id)
+                                   time_steps=-1)
 
             # Get the best FEC in terms of power and connect to it
             if self.general['training_if'] != 'y' and self.general['training_if'] != 'Y':
@@ -397,7 +399,7 @@ class CAV:
                 # iterator = 0
                 while True:
                     if self.my_vnf['source'] == self.my_vnf['current_node'] == self.my_vnf['previous_node']:
-                        message = json.dumps(dict(type="vnf", data=self.my_vnf))  # take input
+                        message = json.dumps(dict(type="vnf", user_id=self.user_id, data=self.my_vnf))  # take input
                         self.client_socket.send(message.encode())  # send message
                         data = self.client_socket.recv(1024).decode()  # receive response
                         json_data = json.loads(data)
@@ -482,11 +484,11 @@ class CAV:
                         self.my_vnf['previous_node'] = self.my_vnf['current_node']
                         self.my_vnf['current_node'] = self.next_node
                         self.my_vnf['cav_fec'] = self.fec_id
-                        message = json.dumps(dict(type="state", data=dict(previous_node=self.my_vnf['previous_node'],
-                                                                          current_node=self.my_vnf['current_node'],
-                                                                          cav_fec=self.my_vnf['cav_fec'],
-                                                                          time_steps=self.my_vnf['time_steps'],
-                                                                          user_id=self.my_vnf['user_id'])))
+                        message = json.dumps(dict(type="state", user_id=self.user_id,
+                                                  data=dict(previous_node=self.my_vnf['previous_node'],
+                                                            current_node=self.my_vnf['current_node'],
+                                                            cav_fec=self.my_vnf['cav_fec'],
+                                                            time_steps=self.my_vnf['time_steps'])))
                         self.client_socket.send(message.encode())  # send message
                         data = self.client_socket.recv(1024).decode()  # receive response
                         json_data = json.loads(data)
@@ -537,7 +539,7 @@ class CAV:
                         elif json_data['res'] == 403:
                             self.my_vnf = None
                             self.logger.error('[!] Error! Required resources are not available on current FEC. '
-                                         'Ask for less resources.')
+                                              'Ask for less resources.')
                             stop = False
                         elif json_data['res'] == 404:
                             self.my_vnf = None

@@ -3,6 +3,7 @@ import configparser
 from colorlog import ColoredFormatter
 import logging
 import sys
+import time
 
 
 def get_action(target, curr_node):
@@ -134,8 +135,9 @@ logger.addHandler(stream_handler)
 logging.getLogger('pika').setLevel(logging.WARNING)
 env = Environment(logger, general)
 try:
-
-    for episode in range(100):
+    num_episodes = 100
+    before = time.time()
+    for episode in range(num_episodes):
         logger.info('[I] Starting new episode')
         obs, info = env.reset()
         episode_reward = 0
@@ -151,5 +153,9 @@ try:
             else:
                 logger.info('[I] Got new observation: ' + str(obs))
     env.stop()
+    after = time.time()
+    diff = after - before
+
+    logger.info('[I] Time elapsed for ' + str(num_episodes) + ' episodes: ' + str(diff) + ' s')
 except KeyboardInterrupt:
     env.stop()
