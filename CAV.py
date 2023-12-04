@@ -157,20 +157,20 @@ class CAV:
             return
 
     def get_ip_to_connect(self):
-        if self.my_vnf['source'] == 1 or self.my_vnf['source'] == 2 or self.my_vnf['source'] == 5 \
-                or self.my_vnf['source'] == 6:
+        if self.my_vnf['source'] == 0 or self.my_vnf['source'] == 1 or self.my_vnf['source'] == 4 \
+                or self.my_vnf['source'] == 5:
             return self.general['fec_0_ip']
-        elif self.my_vnf['source'] == 3 or self.my_vnf['source'] == 4 or self.my_vnf['source'] == 7 \
-                or self.my_vnf['source'] == 8:
+        elif self.my_vnf['source'] == 2 or self.my_vnf['source'] == 3 or self.my_vnf['source'] == 6 \
+                or self.my_vnf['source'] == 7:
             return self.general['fec_1_ip']
-        elif self.my_vnf['source'] == 9 or self.my_vnf['source'] == 10 or self.my_vnf['source'] == 13 \
-                or self.my_vnf['source'] == 14:
+        elif self.my_vnf['source'] == 8 or self.my_vnf['source'] == 9 or self.my_vnf['source'] == 12 \
+                or self.my_vnf['source'] == 13:
             return self.general['fec_2_ip']
-        elif self.my_vnf['source'] == 11 or self.my_vnf['source'] == 12 or self.my_vnf['source'] == 15 \
-                or self.my_vnf['source'] == 16:
+        elif self.my_vnf['source'] == 10 or self.my_vnf['source'] == 11 or self.my_vnf['source'] == 14 \
+                or self.my_vnf['source'] == 15:
             return self.general['fec_3_ip']
         else:
-            logger.error('[!] Non-existing VNF! Can not choose FEC to connect')
+            self.logger.error('[!] Non-existing VNF! Can not choose FEC to connect')
 
     def handover(self, address):
         # Function that handles handovers. First disconnects from current FEC and after connects to the new one
@@ -446,8 +446,8 @@ class CAV:
                             valid_vnf = False
                             stop = False
                         elif json_data['res'] == 404:
+                            self.logger.error('[!] Error! Required target does not exist. Ask for an existing target. my_vnf: ' + str(self.my_vnf))
                             self.my_vnf = None
-                            self.logger.error('[!] Error! Required target does not exist. Ask for an existing target.')
                             valid_vnf = False
                             stop = False
                         else:
