@@ -89,17 +89,17 @@ try:
 
         for step in range(25):
             # action = select_action_strategy_fn(obs)
-            action = get_action(obs['vnf']['target'], obs['vnf']['current_node'])
-            obs, reward, terminated, info = env.step(action, obs['vnf']['cav_fec'])
+            action = get_action(obs[1], obs[5])
+            obs, reward, terminated, truncated, info = env.step(action)
             if terminated:
                 logger.info('[I] Episode terminated')
                 break
             else:
                 logger.info('[I] Got new observation: ' + str(obs))
-    env.stop()
+    env.close()
     after = time.time()
     diff = after - before
 
     logger.info('[I] Time elapsed for ' + str(num_episodes) + ' episodes: ' + str(diff) + ' s')
 except KeyboardInterrupt:
-    env.stop()
+    env.close()

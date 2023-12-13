@@ -1,7 +1,7 @@
 # DEPENDENCIES
 import random
 import networkx as nx
-from globals import (
+from config import (
     MAX_GPU,
     MIN_GPU,
     MAX_RAM,
