@@ -77,25 +77,25 @@ stream_handler = logging.StreamHandler(sys.stdout)
 stream_handler.setFormatter(ColoredFormatter('%(log_color)s%(message)s'))
 logger.addHandler(stream_handler)
 logging.getLogger('pika').setLevel(logging.WARNING)
-env = Environment(logger, general)
+env = Environment()
 try:
     num_episodes = 100
     before = time.time()
     for episode in range(num_episodes):
-        logger.info('[I] Starting new episode')
+        logger.debug('[D] Starting new episode')
         obs, info = env.reset()
         episode_reward = 0
-        logger.info('[I] Got new observation: ' + str(obs))
+        logger.debug('[D] Got new observation: ' + str(obs))
 
         for step in range(25):
             # action = select_action_strategy_fn(obs)
             action = get_action(obs[1], obs[5])
             obs, reward, terminated, truncated, info = env.step(action)
             if terminated:
-                logger.info('[I] Episode terminated')
+                logger.debug('[D] Episode terminated')
                 break
             else:
-                logger.info('[I] Got new observation: ' + str(obs))
+                logger.debug('[D] Got new observation: ' + str(obs))
     env.close()
     after = time.time()
     diff = after - before

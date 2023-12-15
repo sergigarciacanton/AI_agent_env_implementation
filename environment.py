@@ -1,10 +1,15 @@
+import configparser
+import logging
+import sys
 import threading
 import time
 import pika
 import json
 import ctypes
 import socket
-import platform
+
+from colorlog import ColoredFormatter
+
 from CAV import CAV
 import numpy as np
 import networkx as nx
@@ -17,7 +22,7 @@ import copy
 
 class Environment:
     # Initialize any parameters or variables needed for the environment
-    def __init__(self, logger, general):
+    def __init__(self):
         self.graph = get_graph()
         self.fec_list = dict()
         self.vnf_list = dict()
@@ -27,8 +32,17 @@ class Environment:
         self.cav = None
         self.cav_route = []
         self.state_changed = False
-        self.logger = logger
-        self.general = general
+        config = configparser.ConfigParser()
+        config.read("env_outdoor.ini")
+        self.general = config['general']
+
+        self.logger = logging.getLogger('env')
+        self.logger.setLevel(int(self.general['log_level']))
+        self.logger.addHandler(logging.FileHandler(self.general['log_file_name'], mode='w', encoding='utf-8'))
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setFormatter(ColoredFormatter('%(log_color)s%(message)s'))
+        self.logger.addHandler(stream_handler)
+        logging.getLogger('pika').setLevel(logging.WARNING)
         self.rabbit_conn = pika.BlockingConnection(
             pika.ConnectionParameters(host=self.general['control_ip'], port=self.general['rabbit_port'],
                                       credentials=pika.PlainCredentials(self.general['control_username'],
@@ -151,7 +165,7 @@ class Environment:
         channel.start_consuming()
 
     def start_cav(self):
-        self.cav = CAV(platform.system(), self.general, self.logger)
+        self.cav = CAV()
 
     def get_obs(self):
         vnf = copy.deepcopy(self.vnf_list['1'])
@@ -182,7 +196,7 @@ class Environment:
         fec_socket.send(json.dumps(dict(type="action", action=action)).encode())
         response = json.loads(fec_socket.recv(1024).decode())
         if response['res'] == 200:
-            self.logger.info('[I] Action ' + str(action) + ' sent successfully to FEC ' + str(fec_id))
+            self.logger.debug('[D] Action ' + str(action) + ' sent successfully to FEC ' + str(fec_id))
         else:
             self.logger.critical('[!] Error from FEC' + str(response['res']))
             raise Exception
