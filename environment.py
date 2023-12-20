@@ -15,12 +15,36 @@ import numpy as np
 import networkx as nx
 from graph_upc import get_graph
 from typing import Optional  # , Tuple
-from config import TIMESTEPS_LIMIT, FECS_RANGE  # , EDGES_COST, NODES_POSITION, MIN_BW, MIN_GPU, MIN_RAM, MAX_RAM, MAX_GPU, MAX_BW
+from config import TIMESTEPS_LIMIT, FECS_RANGE, \
+    EDGES_COST, NODES_POSITION, \
+    MAX_GPU, MIN_GPU, MIN_RAM, \
+    MAX_RAM, MIN_BW, MAX_BW  # , EDGES_COST, NODES_POSITION, MIN_BW, MIN_GPU, MIN_RAM, MAX_RAM, MAX_GPU, MAX_BW
 from itertools import chain
 import copy
+import gymnasium as gym
+from gymnasium.spaces import Box, Discrete, Tuple
 
 
-class Environment:
+# FUNCTIONS
+def get_next_hop_fec(cav_trajectory) -> Optional[int]:
+    """
+    Retrieves the FEC associated with the last hop in the given CAV trajectory.
+
+    Parameters:
+    - cav_trajectory (Tuple[int, int]): The CAV trajectory represented as a tuple of current and previous nodes.
+
+    Returns: - Optional[int]: The FEC (Forward Error Correction) associated with the last hop, or None if no matching
+    FEC is found.
+    """
+
+    try:
+        return next((fec for fec, one_hop_path in FECS_RANGE.items() if cav_trajectory in one_hop_path))
+    except StopIteration:
+        raise ValueError("No matching FEC found for the given CAV trajectory.")
+
+
+# CLASSES
+class EnvironmentUPC(gym.Env):
     # Initialize any parameters or variables needed for the environment
     def __init__(self):
         self.graph = get_graph()
@@ -33,7 +57,7 @@ class Environment:
         self.cav_route = []
         self.state_changed = False
         config = configparser.ConfigParser()
-        config.read("env_outdoor.ini")
+        config.read("env_annex.ini")
         self.general = config['general']
 
         self.logger = logging.getLogger('env')
@@ -51,51 +75,35 @@ class Environment:
         self.subscribe_thread.daemon = True
         self.subscribe_thread.start()
         self.cav_thread = None
-        # self.observation_space = Tuple((
-        #     # VNF
-        #     Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Starting CAV node
-        #     Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Destination CAV node
-        #     Box(0, 18, shape=(1,), dtype=int),  # GPU CAV request
-        #     Box(0, 18, shape=(1,), dtype=int),  # RAM CAV request
-        #     Box(0, 18, shape=(1,), dtype=int),  # BW CAV request
-        #     # CAV info
-        #     Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Current CAV node
-        #     Box(min(FECS_RANGE.keys()), max(FECS_RANGE.keys()), shape=(1,), dtype=int),  # Current CAV FEC connection
-        #     Box(0, TIMESTEPS_LIMIT, shape=(1,), dtype=int),  # Remain CAV times-steps
-        #     Box(0, 100, shape=(1,), dtype=int),  # Hops to targe node
-        #     # # VECN status
-        #     Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC0 free GPU
-        #     Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC0 free RAM
-        #     Box(MIN_BW, MAX_BW, shape=(1,), dtype=int),  # FEC0 free BW
-        #     Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC1 free GPU
-        #     Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC1 free RAM
-        #     Box(MIN_BW, MAX_BW, shape=(1,), dtype=int),  # FEC1 free BW
-        #     Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC2 free GPU
-        #     Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC2 free RAM
-        #     Box(MIN_BW, MAX_BW, shape=(1,), dtype=int),  # FEC2 free BW
-        #     Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC3 free GPU
-        #     Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC3 free RAM
-        #     Box(MIN_BW, MAX_BW, shape=(1,), dtype=int))  # FEC3 free BW
-        # )
-        # # Action space
-        # max_node_in_graph = max(map(lambda node: max(node), EDGES_COST.keys()))
-        # self.action_space = Discrete(max_node_in_graph + 1)  # Each possible graph node becomes an action to move to
-
-    def get_next_hop_fec(self, cav_trajectory) -> Optional[int]:
-        """
-        Retrieves the FEC associated with the last hop in the given CAV trajectory.
-
-        Parameters:
-        - cav_trajectory (Tuple[int, int]): The CAV trajectory represented as a tuple of current and previous nodes.
-
-        Returns: - Optional[int]: The FEC (Forward Error Correction) associated with the last hop, or None if no matching
-        FEC is found.
-        """
-
-        try:
-            return next((fec for fec, one_hop_path in FECS_RANGE.items() if cav_trajectory in one_hop_path))
-        except StopIteration:
-            raise ValueError("No matching FEC found for the given CAV trajectory.")
+        self.observation_space = Tuple((
+            # VNF
+            Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Starting CAV node
+            Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Destination CAV node
+            Box(0, 18, shape=(1,), dtype=int),  # GPU CAV request
+            Box(0, 18, shape=(1,), dtype=int),  # RAM CAV request
+            Box(0, 18, shape=(1,), dtype=int),  # BW CAV request
+            # CAV info
+            Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Current CAV node
+            Box(min(FECS_RANGE.keys()), max(FECS_RANGE.keys()), shape=(1,), dtype=int),  # Current CAV FEC connection
+            Box(0, TIMESTEPS_LIMIT, shape=(1,), dtype=int),  # Remain CAV times-steps
+            Box(0, 100, shape=(1,), dtype=int),  # Hops to target node
+            # # VECN status
+            Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC0 free GPU
+            Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC0 free RAM
+            Box(MIN_BW, MAX_BW, shape=(1,), dtype=int),  # FEC0 free BW
+            Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC1 free GPU
+            Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC1 free RAM
+            Box(MIN_BW, MAX_BW, shape=(1,), dtype=int),  # FEC1 free BW
+            Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC2 free GPU
+            Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC2 free RAM
+            Box(MIN_BW, MAX_BW, shape=(1,), dtype=int),  # FEC2 free BW
+            Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC3 free GPU
+            Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC3 free RAM
+            Box(MIN_BW, MAX_BW, shape=(1,), dtype=int))  # FEC3 free BW
+        )
+        # Action space
+        max_node_in_graph = max(map(lambda node: max(node), EDGES_COST.keys()))
+        self.action_space = Discrete(max_node_in_graph + 1)  # Each possible graph node becomes an action to move to
 
     def check_fec_resources(self, fec_id):
         return (
@@ -119,12 +127,14 @@ class Environment:
         cav_current_node = self.vnf_list['1']['current_node']
 
         # All possible shortest paths from source_node to target_node
-        all_possible_shortest_paths = list(nx.all_shortest_paths(self.graph, vnf_source_node, vnf_target_node, 'weight'))
+        all_possible_shortest_paths = list(
+            nx.all_shortest_paths(self.graph, vnf_source_node, vnf_target_node, 'weight'))
 
         # Calculate the negative reward based on the path weight
         if self.cav_route.count(cav_next_node) >= 2:
             times_revisited_node = self.cav_route.count(cav_next_node)
-            # self.reward += times_revisited_node * (-nx.path_weight(self.graph, [cav_current_node, cav_next_node], 'weight'))
+            # self.reward += times_revisited_node *
+            # (-nx.path_weight(self.graph, [cav_current_node, cav_next_node], 'weight'))
             self.reward += -10 * times_revisited_node
         else:
             self.reward += -nx.path_weight(self.graph, [cav_current_node, cav_next_node], 'weight')
@@ -185,11 +195,12 @@ class Environment:
             fec.pop('connected_users')
             fecs.append(list(fec.values()))
 
-        obs = np.array([list(vnf.values()) + [self.timesteps_limit] + hops_to_target + list(chain.from_iterable(fecs))], dtype=np.int16)[0]
+        obs = np.array([list(vnf.values()) + [self.timesteps_limit] + hops_to_target + list(chain.from_iterable(fecs))],
+                       dtype=np.int16)[0]
         return obs
 
     def send_action_to_fec(self, action, fec_id):
-        host = self.fec_list["0"]['ip']  # CAMBIAR POR fec_id!!!
+        host = self.fec_list[str(fec_id)]['ip']
         port = int(self.general['agent_fec_port'])
         fec_socket = socket.socket()
         fec_socket.connect((host, port))
@@ -202,21 +213,28 @@ class Environment:
             raise Exception
         fec_socket.close()
 
-    def reset(self):
+    def reset(self, seed=None):
         # Reset the environment to its initial state
         # Return the initial observation
+        super().reset(seed=seed)
+
+        # CAV initialization
         self.cav_thread = threading.Thread(target=self.start_cav)
         self.cav_thread.start()
 
+        # Timesteps count initialization
         self.timesteps_limit = TIMESTEPS_LIMIT
 
         while not self.state_changed:
             time.sleep(0.001)
+
         self.state_changed = False
         self.cav_route.append(self.vnf_list['1']['current_node'])
 
+        # Initial obs
         initial_obs = self.get_obs()
 
+        # Info
         info = {}
 
         self.reward = -1
@@ -230,8 +248,7 @@ class Environment:
         self.timesteps_limit -= 1
 
         next_cav_trajectory = (int(self.vnf_list['1']['current_node']), int(action))
-        # fec_id = self.get_next_hop_fec(next_cav_trajectory)
-        fec_id = 0  # BORRAR
+        fec_id = get_next_hop_fec(next_cav_trajectory)
         if fec_id != self.vnf_list['1']['cav_fec']:
             fec_resource_ok = self.check_fec_resources(fec_id)
         else:
@@ -240,7 +257,7 @@ class Environment:
         if fec_resource_ok:  # Resources OK
             self._reward_fn(action)
             self.cav_route.append(action)
-            self.send_action_to_fec(action, fec_id)
+            self.send_action_to_fec(action, self.vnf_list['1']['cav_fec'])
 
             while not self.state_changed:
                 time.sleep(0.001)
