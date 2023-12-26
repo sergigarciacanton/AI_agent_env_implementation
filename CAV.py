@@ -9,8 +9,8 @@ import logging
 import sys
 from colorlog import ColoredFormatter
 import os
-from dronekit import connect, VehicleMode
-import dronekit
+# from dronekit import connect, VehicleMode
+# import dronekit
 import math
 from vnf_generator import VNF
 
@@ -37,21 +37,21 @@ class CAV:
         stream_handler.setFormatter(ColoredFormatter('%(log_color)s%(message)s'))
         self.logger.addHandler(stream_handler)
         logging.getLogger('pika').setLevel(logging.WARNING)
-        if self.general['rover_if'] != 'n' and self.general['rover_if'] != 'N':
-            self.vehicle = connect(self.general['rover_conn'], wait_ready=True, baud=115200)
-            self.logger.info("[I] Connected to vehicle")
-
-            self.vehicle.mode = VehicleMode("GUIDED")
-            while not self.vehicle.mode == VehicleMode("GUIDED"):
-                time.sleep(1)
-            self.logger.info("[I] Guided mode ready")
-
-            self.vehicle.armed = True
-            while not self.vehicle.armed:
-                time.sleep(1)
-            self.logger.info("[I] Armed vehicle")
-        else:
-            self.vehicle = None
+        # if self.general['rover_if'] != 'n' and self.general['rover_if'] != 'N':
+        #     self.vehicle = connect(self.general['rover_conn'], wait_ready=True, baud=115200)
+        #     self.logger.info("[I] Connected to vehicle")
+        #
+        #     self.vehicle.mode = VehicleMode("GUIDED")
+        #     while not self.vehicle.mode == VehicleMode("GUIDED"):
+        #         time.sleep(1)
+        #     self.logger.info("[I] Guided mode ready")
+        #
+        #     self.vehicle.armed = True
+        #     while not self.vehicle.armed:
+        #         time.sleep(1)
+        #     self.logger.info("[I] Armed vehicle")
+        # else:
+        self.vehicle = None
         self.vehicle_active = False
 
         self.start_cav()
@@ -307,10 +307,10 @@ class CAV:
     def distance(self, lat1, lng1, lat2, lng2):
         # Finds the distance between two sets of coordinates
         deg_to_rad = math.pi / 180
-        dLat = (lat1 - lat2) * deg_to_rad
-        dLng = (lng1 - lng2) * deg_to_rad
-        a = pow(math.sin(dLat / 2), 2) + math.cos(lat1 * deg_to_rad) * \
-            math.cos(lat2 * deg_to_rad) * pow(math.sin(dLng / 2), 2)
+        d_lat = (lat1 - lat2) * deg_to_rad
+        d_lng = (lng1 - lng2) * deg_to_rad
+        a = pow(math.sin(d_lat / 2), 2) + math.cos(lat1 * deg_to_rad) * \
+            math.cos(lat2 * deg_to_rad) * pow(math.sin(d_lng / 2), 2)
         b = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return 6371000 * b
 
@@ -405,7 +405,6 @@ class CAV:
                     os.system("vlc " + self.general['video_link'])
 
             try:
-                # iterator = 0
                 while True:
                     if self.my_vnf['source'] == self.my_vnf['current_node'] == self.my_vnf['previous_node']:
                         message = json.dumps(dict(type="vnf", user_id=self.user_id, data=self.my_vnf))  # take input
@@ -413,20 +412,6 @@ class CAV:
                         data = self.client_socket.recv(1024).decode()  # receive response
                         json_data = json.loads(data)
                         self.logger.debug('[D] Response from server: ' + str(json_data))
-                        # if iterator == 0:
-                        #     iterator += 1
-                        #     json_data = dict(res=200, next_node=8, location='41.27607627820264,1.988212939805942')
-                        # elif iterator == 1:
-                        #     iterator += 1
-                        #     json_data = dict(res=200, next_node=4, location='41.27618043781608,1.988175200657076')
-                        # elif iterator == 2:
-                        #     iterator += 1
-                        #     json_data = dict(res=200, next_node=3, location='41.27614011136027,1.988006030851253')
-                        # elif iterator == 3:
-                        #     iterator += 1
-                        #     json_data = dict(res=200, next_node=7, location='41.27603977014193,1.988058630277008')
-                        # else:
-                        #    json_data = dict(res=200, next_node=-1, location='41.27603977014193,1.988058630277008')
                         if json_data['res'] == 200:
                             self.next_node = json_data['next_node']
                             if self.vehicle is not None and self.next_node != -1:
@@ -439,30 +424,25 @@ class CAV:
                                     key_in = 'n'
                                 if key_in != 'n':
                                     self.my_vnf = None
-                                    valid_vnf = False
                                     stop = False
                                 else:
                                     self.my_vnf = None
-                                    valid_vnf = True
                                     stop = True
                             else:
-                                valid_vnf = True
                                 stop = False
                         elif json_data['res'] == 403:
                             self.my_vnf = None
                             self.logger.error('[!] Error! Required resources are not available on current FEC. '
                                               'Ask for less resources.')
-                            valid_vnf = False
                             stop = False
                         elif json_data['res'] == 404:
-                            self.logger.error('[!] Error! Required target does not exist. Ask for an existing target. my_vnf: ' + str(self.my_vnf))
+                            self.logger.error('[!] Error! Required target does not exist. Ask for an existing target. '
+                                              'my_vnf: ' + str(self.my_vnf))
                             self.my_vnf = None
-                            valid_vnf = False
                             stop = False
                         else:
                             self.my_vnf = None
                             self.logger.error('[!] Error ' + str(json_data['res']) + ' when sending VNF to FEC!')
-                            valid_vnf = False
                             stop = False
                     while self.my_vnf is not None:
                         # Move to next point
@@ -473,10 +453,10 @@ class CAV:
                             if json_data['cav_fec'] is not self.my_vnf['cav_fec']:
                                 self.handover(json_data['fec_ip'])
                         if self.vehicle is not None and self.vehicle_active is False:
-                            point = dronekit.LocationGlobal(float(self.next_location.split(',')[0]),
-                                                            float(self.next_location.split(',')[1]), 0)
-                            self.logger.debug('[D] Moving towards first target...')
-                            self.vehicle.simple_goto(point, 1)
+                            # point = dronekit.LocationGlobal(float(self.next_location.split(',')[0]),
+                            #                                 float(self.next_location.split(',')[1]), 0)
+                            # self.logger.debug('[D] Moving towards first target...')
+                            # self.vehicle.simple_goto(point, 1)
                             self.vehicle_active = True
                         if self.vehicle is not None and self.vehicle_active is True:
                             while self.distance(float(self.next_location.split(',')[0]),
@@ -502,20 +482,6 @@ class CAV:
                         data = self.client_socket.recv(1024).decode()  # receive response
                         json_data = json.loads(data)
                         self.logger.debug('[D] Response from server: ' + str(json_data))
-                        # if iterator == 0:
-                        #     iterator += 1
-                        #     json_data = dict(res=200, next_node=8, location='41.27607627820264,1.988212939805942')
-                        # elif iterator == 1:
-                        #     iterator += 1
-                        #     json_data = dict(res=200, next_node=4, location='41.27618043781608,1.988175200657076')
-                        # elif iterator == 2:
-                        #     iterator += 1
-                        #     json_data = dict(res=200, next_node=3, location='41.27614011136027,1.988006030851253')
-                        # elif iterator == 3:
-                        #     iterator += 1
-                        #     json_data = dict(res=200, next_node=7, location='41.27603977014193,1.988058630277008')
-                        # else:
-                        #     json_data = dict(res=200, next_node=-1, location='41.27603977014193,1.988058630277008')
                         if json_data['res'] == 200:
                             self.next_node = json_data['next_node']
                             if self.vehicle is not None and json_data['next_node'] != -1:
@@ -542,9 +508,9 @@ class CAV:
                                                         self.vehicle.location.global_frame.lon) > 1:
                                         time.sleep(1)
                                     self.logger.debug('[D] Reached next point! Loading next target...')
-                                    point = dronekit.LocationGlobal(float(self.next_location.split(',')[0]),
-                                                                    float(self.next_location.split(',')[1]), 0)
-                                    self.vehicle.simple_goto(point, 1)
+                                    # point = dronekit.LocationGlobal(float(self.next_location.split(',')[0]),
+                                    #                                 float(self.next_location.split(',')[1]), 0)
+                                    # self.vehicle.simple_goto(point, 1)
                         elif json_data['res'] == 403:
                             self.my_vnf = None
                             self.logger.error('[!] Error! Required resources are not available on current FEC. '

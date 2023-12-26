@@ -225,6 +225,8 @@ class EnvironmentUPC(gym.Env):
         # Timesteps count initialization
         self.timesteps_limit = TIMESTEPS_LIMIT
 
+        self.logger.debug('Starting new episode...')
+
         while not self.state_changed:
             time.sleep(0.001)
 
@@ -253,6 +255,7 @@ class EnvironmentUPC(gym.Env):
             fec_resource_ok = self.check_fec_resources(fec_id)
         else:
             fec_resource_ok = True
+        old_cav_state = copy.deepcopy(self.vnf_list['1'])
 
         if fec_resource_ok:  # Resources OK
             self._reward_fn(action)
@@ -266,14 +269,43 @@ class EnvironmentUPC(gym.Env):
             self.reward = -100
             self.terminated = True
 
+        truncated = self.timesteps_limit <= 0
+
         if '1' not in self.vnf_list.keys():
-            next_obs = np.array([])
+            old_cav_state.pop('previous_node')
+            old_cav_state.pop('time_steps')
+            hops = []
+            for path in nx.all_shortest_paths(self.graph, old_cav_state['current_node'],
+                                              old_cav_state['target'],
+                                              weight='weight'):
+                # Save the number of hops from each path
+                hops.append(len(path) - 1)
+
+            hops_to_target = [min(hops)]
+            fec_copy = copy.deepcopy(self.fec_list)
+            fecs = list()
+            for fec in fec_copy.values():
+                fec.pop('ip')
+                fec.pop('connected_users')
+                fecs.append(list(fec.values()))
+
+            next_obs = \
+            np.array([list(old_cav_state.values()) + [self.timesteps_limit] + hops_to_target + list(chain.from_iterable(fecs))],
+                     dtype=np.int16)[0]
             self.terminated = True
             self.cav_thread.join()
         else:
             next_obs = self.get_obs()
 
-        truncated = self.timesteps_limit <= 0
+            if truncated:
+                self.send_action_to_fec(-1, self.vnf_list['1']['cav_fec'])
+                while not self.state_changed:
+                    time.sleep(0.001)
+                self.state_changed = False
+                if '1' in self.vnf_list.keys():
+                    self.logger.error('[!] Truncated VNF not killed!')
+                else:
+                    time.sleep(0.001)  # Just to give time FECs to remove VNF from their lists
 
         info = {}
 
