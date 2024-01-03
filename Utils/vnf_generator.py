@@ -8,7 +8,8 @@ from config import (
     MIN_RAM,
     MAX_BW,
     MIN_BW,
-    EDGES_COST,)
+    EDGES_COST,
+    NODES_2_TRAIN)
 
 # GLOBALS
 # Represent scenario as a graph with node, edges and edges cost
@@ -19,11 +20,12 @@ G.add_edges_from((u, v, {'weight': w}) for (u, v), w in EDGES_COST.items())
 # CLASS
 class VNF:
     """ Generate random VNF requests"""
+
     def __init__(self, seed=None):
         # Set the seed
         random.seed(seed)
         # Ensure ns and nd are not the same. Nodes start at 0 and end at number_of_nodes
-        self.__ns, self.__nd = random.sample(range(0, G.number_of_nodes()), 2)
+        self.__ns, self.__nd = 0, 15  # random.sample(NODES_2_TRAIN, 2)
         self.__gpu = random.choice([MIN_GPU, MAX_GPU])
         self.__ram = random.choice([MIN_RAM, MAX_RAM])
         self.__bw = random.choice([MIN_BW, MAX_BW])

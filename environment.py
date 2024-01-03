@@ -1,3 +1,4 @@
+# DEPENDENCIES
 import configparser
 import logging
 import sys
@@ -7,22 +8,29 @@ import pika
 import json
 import ctypes
 import socket
-
-from colorlog import ColoredFormatter
-
-from CAV import CAV
 import numpy as np
 import networkx as nx
-from graph_upc import get_graph
-from typing import Optional  # , Tuple
-from config import TIMESTEPS_LIMIT, FECS_RANGE, \
-    EDGES_COST, NODES_POSITION, \
-    MAX_GPU, MIN_GPU, MIN_RAM, \
-    MAX_RAM, MIN_BW, MAX_BW  # , EDGES_COST, NODES_POSITION, MIN_BW, MIN_GPU, MIN_RAM, MAX_RAM, MAX_GPU, MAX_BW
-from itertools import chain
 import copy
 import gymnasium as gym
-from gymnasium.spaces import Box, Discrete, Tuple
+from colorlog import ColoredFormatter
+from CAV import CAV
+from Utils.graph_upc import get_graph
+from typing import Optional
+from config import (
+    TIMESTEPS_LIMIT,
+    FECS_RANGE,
+    NODES_POSITION,
+)
+from itertools import chain
+from gymnasium.spaces import Discrete, MultiDiscrete
+
+# GLOBALS
+FEC_MIN_GPU = 0
+FEC_MIN_RAM = 0
+FEC_MIN_BW = 0
+FEC_MAX_GPU = 128
+FEC_MAX_RAM = 32
+FEC_MAX_BW = 100
 
 
 # FUNCTIONS
@@ -51,13 +59,13 @@ class EnvironmentUPC(gym.Env):
         self.fec_list = dict()
         self.vnf_list = dict()
         self.timesteps_limit = 20
-        self.reward = -1
         self.terminated = False
         self.cav = None
         self.cav_route = []
         self.state_changed = False
         config = configparser.ConfigParser()
-        config.read("env_annex.ini")
+
+        config.read("/home/upc_ai_vecn/Documents/AI_agent_env_implementation/ini_files/env_annex.ini")
         self.general = config['general']
 
         self.logger = logging.getLogger('env')
@@ -75,35 +83,41 @@ class EnvironmentUPC(gym.Env):
         self.subscribe_thread.daemon = True
         self.subscribe_thread.start()
         self.cav_thread = None
-        self.observation_space = Tuple((
-            # VNF
-            Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Starting CAV node
-            Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Destination CAV node
-            Box(0, 18, shape=(1,), dtype=int),  # GPU CAV request
-            Box(0, 18, shape=(1,), dtype=int),  # RAM CAV request
-            Box(0, 18, shape=(1,), dtype=int),  # BW CAV request
-            # CAV info
-            Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Current CAV node
-            Box(min(FECS_RANGE.keys()), max(FECS_RANGE.keys()), shape=(1,), dtype=int),  # Current CAV FEC connection
-            Box(0, TIMESTEPS_LIMIT, shape=(1,), dtype=int),  # Remain CAV times-steps
-            Box(0, 100, shape=(1,), dtype=int),  # Hops to target node
-            # # VECN status
-            Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC0 free GPU
-            Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC0 free RAM
-            Box(MIN_BW, MAX_BW, shape=(1,), dtype=int),  # FEC0 free BW
-            Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC1 free GPU
-            Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC1 free RAM
-            Box(MIN_BW, MAX_BW, shape=(1,), dtype=int),  # FEC1 free BW
-            Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC2 free GPU
-            Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC2 free RAM
-            Box(MIN_BW, MAX_BW, shape=(1,), dtype=int),  # FEC2 free BW
-            Box(MIN_GPU, MAX_GPU, shape=(1,), dtype=int),  # FEC3 free GPU
-            Box(MIN_RAM, MAX_RAM, shape=(1,), dtype=int),  # FEC3 free RAM
-            Box(MIN_BW, MAX_BW, shape=(1,), dtype=int))  # FEC3 free BW
-        )
+
+        # Observation space
+        # self.observation_space = Tuple((
+        #     # VNF
+        #     Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Starting CAV node
+        #     Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Destination CAV node
+        #     Box(0, 18, shape=(1,), dtype=int),  # GPU CAV request
+        #     Box(0, 18, shape=(1,), dtype=int),  # RAM CAV request
+        #     Box(0, 18, shape=(1,), dtype=int),  # BW CAV request
+        #     # CAV info
+        #     Box(min(NODES_POSITION.keys()), max(NODES_POSITION.keys()), shape=(1,), dtype=int),  # Current CAV node
+        #     Box(min(FECS_RANGE.keys()), max(FECS_RANGE.keys()), shape=(1,), dtype=int),  # Current CAV FEC connection
+        #     Box(0, TIMESTEPS_LIMIT, shape=(1,), dtype=int),  # Remain CAV times-steps
+        #     Box(0, 100, shape=(1,), dtype=int),  # Hops to target node
+        #     # VECN status
+        #     Box(FEC_MIN_GPU, FEC_MAX_GPU, shape=(1,), dtype=int),  # FEC0 free GPU
+        #     Box(FEC_MIN_RAM, FEC_MAX_RAM, shape=(1,), dtype=int),  # FEC0 free RAM
+        #     Box(FEC_MIN_BW, FEC_MAX_BW, shape=(1,), dtype=int),  # FEC0 free BW
+        #     Box(FEC_MIN_GPU, FEC_MAX_GPU, shape=(1,), dtype=int),  # FEC1 free GPU
+        #     Box(FEC_MIN_RAM, FEC_MAX_RAM, shape=(1,), dtype=int),  # FEC1 free RAM
+        #     Box(FEC_MIN_BW, FEC_MAX_BW, shape=(1,), dtype=int),  # FEC1 free BW
+        #     Box(FEC_MIN_GPU, FEC_MAX_GPU, shape=(1,), dtype=int),  # FEC2 free GPU
+        #     Box(FEC_MIN_RAM, FEC_MAX_RAM, shape=(1,), dtype=int),  # FEC2 free RAM
+        #     Box(FEC_MIN_BW, FEC_MAX_BW, shape=(1,), dtype=int),  # FEC2 free BW
+        #     Box(FEC_MIN_GPU, FEC_MAX_GPU, shape=(1,), dtype=int),  # FEC3 free GPU
+        #     Box(FEC_MIN_RAM, FEC_MAX_RAM, shape=(1,), dtype=int),  # FEC3 free RAM
+        #     Box(FEC_MIN_BW, FEC_MAX_BW, shape=(1,), dtype=int))  # FEC3 free BW
+        # )
+
+        # Observation space
+        num_obs_features = 21  # Total number of observation features [VNF, CAV_info, VECN]
+        self.observation_space = MultiDiscrete(np.array([1] * num_obs_features), dtype=np.int32)
+
         # Action space
-        max_node_in_graph = max(map(lambda node: max(node), EDGES_COST.keys()))
-        self.action_space = Discrete(max_node_in_graph + 1)  # Each possible graph node becomes an action to move to
+        self.action_space = Discrete(len(NODES_POSITION.keys()))
 
     def check_fec_resources(self, fec_id):
         return (
@@ -133,16 +147,15 @@ class EnvironmentUPC(gym.Env):
         # Calculate the negative reward based on the path weight
         if self.cav_route.count(cav_next_node) >= 2:
             times_revisited_node = self.cav_route.count(cav_next_node)
-            # self.reward += times_revisited_node *
-            # (-nx.path_weight(self.graph, [cav_current_node, cav_next_node], 'weight'))
-            self.reward += -10 * times_revisited_node
+            self.reward += times_revisited_node * (-nx.path_weight(self.graph, [cav_current_node, cav_next_node], 'weight'))
+
         else:
             self.reward += -nx.path_weight(self.graph, [cav_current_node, cav_next_node], 'weight')
 
         # Check if CAV's route is completed
         if vnf_target_node == cav_next_node:
             self.terminated = True
-            self.reward += 50
+            self.reward += 100
             # Check if completed CAV's route is one of the shortest paths
             if self.cav_route in all_possible_shortest_paths:
                 self.reward += 100
@@ -231,6 +244,7 @@ class EnvironmentUPC(gym.Env):
             time.sleep(0.001)
 
         self.state_changed = False
+        self.cav_route = []
         self.cav_route.append(self.vnf_list['1']['current_node'])
 
         # Initial obs
@@ -251,6 +265,7 @@ class EnvironmentUPC(gym.Env):
 
         next_cav_trajectory = (int(self.vnf_list['1']['current_node']), int(action))
         fec_id = get_next_hop_fec(next_cav_trajectory)
+
         if fec_id != self.vnf_list['1']['cav_fec']:
             fec_resource_ok = self.check_fec_resources(fec_id)
         else:
@@ -258,15 +273,16 @@ class EnvironmentUPC(gym.Env):
         old_cav_state = copy.deepcopy(self.vnf_list['1'])
 
         if fec_resource_ok:  # Resources OK
-            self._reward_fn(action)
             self.cav_route.append(action)
+            self._reward_fn(action)
             self.send_action_to_fec(action, self.vnf_list['1']['cav_fec'])
 
             while not self.state_changed:
                 time.sleep(0.001)
             self.state_changed = False
+
         elif not fec_resource_ok:  # Resources not OK
-            self.reward = -100
+            self.reward -= 100
             self.terminated = True
 
         truncated = self.timesteps_limit <= 0
@@ -290,8 +306,9 @@ class EnvironmentUPC(gym.Env):
                 fecs.append(list(fec.values()))
 
             next_obs = \
-            np.array([list(old_cav_state.values()) + [self.timesteps_limit] + hops_to_target + list(chain.from_iterable(fecs))],
-                     dtype=np.int16)[0]
+                np.array([list(old_cav_state.values()) + [self.timesteps_limit] + hops_to_target + list(
+                    chain.from_iterable(fecs))],
+                         dtype=np.int16)[0]
             self.terminated = True
             self.cav_thread.join()
         else:
@@ -305,9 +322,15 @@ class EnvironmentUPC(gym.Env):
                 if '1' in self.vnf_list.keys():
                     self.logger.error('[!] Truncated VNF not killed!')
                 else:
-                    time.sleep(0.001)  # Just to give time FECs to remove VNF from their lists
+                    time.sleep(0.003)  # Just to give time FECs to remove VNF from their lists
 
-        info = {}
+        if self.terminated and self.reward >= 100:
+            info = {'count': 1}
+        else:
+            info = {'count': 0}
+
+        self.logger.debug('[D] Sending information to agent. obs = ' + str(next_obs) + ', reward = ' + str(self.reward)
+                          + ',terminated = ' + str(self.terminated) + ', truncated  = ' + str(truncated))
 
         return next_obs, self.reward, self.terminated, truncated, info
 

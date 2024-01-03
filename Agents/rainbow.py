@@ -1,11 +1,10 @@
 # DEPENDENCIES
-import copy
 import math
 import random
-import time
+import sys
 from collections import deque
-from itertools import permutations, islice
-from typing import Deque, Dict, List, Tuple
+from itertools import permutations
+from typing import Deque, Dict, List, Tuple, Optional
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -16,26 +15,31 @@ import torch.nn.functional as F
 import torch.optim as optim
 from IPython.display import clear_output
 from torch.nn.utils import clip_grad_norm_
-from segmenttree import MinSegmentTree, SumSegmentTree
+from Utils.segmenttree import MinSegmentTree, SumSegmentTree
 from environment import EnvironmentUPC
-from config import SEED, MODEL_PATH, NODES_2_TRAIN
-from graph_upc import get_graph
-import torch.autograd.profiler as profiler
+from Env_test.env_test import Env_Test
+from config import NODES_2_TRAIN, MODEL_PATH
+from Utils.graph_upc import get_graph
 import os
 import re
 
+np.set_printoptions(threshold=sys.maxsize)
+
 
 # FUNCTIONS
-def _plot(frame_idx: int, scores: List[float], losses: List[float], mean_ratio: int):
+def _plot(frame_idx: int, scores: List[float], mean_scores: List[float], losses: List[float], mean_losses: List[float],
+          mean_ratio: int):
     """Plot the training progresses."""
     clear_output(True)
     plt.figure(figsize=(20, 5))
-    plt.subplot(131)
+    plt.subplot(121)
     plt.title('step %s. score: %s' % (frame_idx, np.mean(scores[-mean_ratio:])))
-    plt.plot(scores)
-    plt.subplot(132)
+    plt.plot(scores, label='Real')
+    plt.plot(mean_scores, label='Promig')
+    plt.subplot(122)
     plt.title('loss')
-    plt.plot(losses)
+    plt.plot(losses, label='Real')
+    plt.plot(mean_losses, label='Promig')
     plt.show()
 
 
@@ -92,11 +96,11 @@ def get_highest_score_model():
             raise FileNotFoundError(f"No model files found in {MODEL_PATH}")
 
         # Extract scores from file names and find the highest score
-        scores = [float(re.search(r'\d+\.\d+', file).group()) for file in model_files]
+        scores = [float(re.search(r'-?\d+\.\d+', file).group()) for file in model_files]
         highest_score = max(scores)
 
         # Construct the file name for the model with the highest score
-        highest_score_model_file = f"dqn_{highest_score:.3f}.pt"
+        highest_score_model_file = f"rainbow_{highest_score}.pt"
 
         # Construct and return the file path
         model_path = os.path.join(MODEL_PATH, highest_score_model_file)
@@ -109,6 +113,33 @@ def get_highest_score_model():
     except Exception as e:
         # Handle unexpected errors during the process
         print(f"An unexpected error occurred when finding the highest score model: {e}")
+
+
+def seed_torch(seed: int) -> None:
+    """
+    Set random seeds for reproducibility in PyTorch.
+
+    Args:
+    - seed (int): The seed value to use for randomization.
+
+    Note:
+    - This function sets the random seed for CPU and GPU (if available).
+    - Disables CuDNN benchmarking and enables deterministic mode for GPU.
+    """
+
+    # Set the random seed for the CPU
+    torch.manual_seed(seed)
+
+    # Check if the CuDNN (CUDA Deep Neural Network library) is enabled
+    if torch.backends.cudnn.enabled:
+        # If CuDNN is enabled, set the random seed for CUDA (GPU)
+        torch.cuda.manual_seed(seed)
+
+        # Disable CuDNN benchmarking to ensure reproducibility
+        torch.backends.cudnn.benchmark = False
+
+        # Enable deterministic mode in CuDNN for reproducibility
+        torch.backends.cudnn.deterministic = True
 
 
 # CLASSES
@@ -136,8 +167,8 @@ class ReplayBuffer:
         self.n_step = n_step
         self.gamma = gamma
 
-    def store(self, obs: np.ndarray, act: int, rew: float, next_obs: np.ndarray, done: bool, ) -> Tuple[
-            np.ndarray, np.ndarray, float, np.ndarray, bool]:
+    def store(self, obs: np.ndarray, act: int, rew: float, next_obs: np.ndarray, done: bool, ) \
+            -> Tuple[np.ndarray, np.ndarray, float, np.ndarray, bool]:
         transition = (obs, act, rew, next_obs, done)
         self.n_step_buffer.append(transition)
 
@@ -205,6 +236,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
                  alpha: float = 0.6,
                  n_step: int = 1,
                  gamma: float = 0.99, ):
+
         """Initialization."""
         assert alpha >= 0
 
@@ -222,6 +254,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
 
     def store(self, obs: np.ndarray, act: int, rew: float, next_obs: np.ndarray, done: bool, ) -> Tuple[
             np.ndarray, np.ndarray, float, np.ndarray, bool]:
+
         """Store experience and priority."""
         transition = super().store(obs, act, rew, next_obs, done)
 
@@ -232,7 +265,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
 
         return transition
 
-    def sample_batch(self, beta: float = 0.6) -> Dict[str, np.ndarray]:
+    def sample_batch(self, beta: float = 0.4) -> Dict[str, np.ndarray]:
         """Sample a batch of experiences."""
         assert len(self) >= self.batch_size
         assert beta > 0
@@ -314,7 +347,7 @@ class NoisyLinear(nn.Module):
 
     """
 
-    def __init__(self, in_features: int, out_features: int, std_init: float = 0.6, ):
+    def __init__(self, in_features: int, out_features: int, std_init: float = 0.5, ):
         """Initialization."""
         super(NoisyLinear, self).__init__()
 
@@ -396,8 +429,8 @@ class Network(nn.Module):
                  out_dim: int,
                  atom_size: int,
                  support: torch.Tensor,
-                 in_features: int = 19,
-                 out_features: int = 19):
+                 in_features: int = 128,
+                 out_features: int = 128):
         """Initialization."""
         super(Network, self).__init__()
 
@@ -447,7 +480,76 @@ class Network(nn.Module):
         self.value_layer.reset_noise()
 
 
-class DQNAgent:
+# class Network(nn.Module):
+#     def __init__(self,
+#                  in_dim: int,
+#                  out_dim: int,
+#                  atom_size: int,
+#                  support: torch.Tensor,
+#                  in_features: int = 128,
+#                  out_features: int = 128):
+#         """Initialization."""
+#         super(Network, self).__init__()
+#
+#         # Set the random seed for PyTorch
+#         torch.manual_seed(42)
+#
+#         # Set the random seed for NumPy if your code involves NumPy operations
+#         np.random.seed(42)
+#
+#         self.support = support
+#         self.out_dim = out_dim
+#         self.atom_size = atom_size
+#
+#         # Set common feature layer
+#         self.feature_layer = nn.Sequential(nn.Linear(in_dim, out_features), nn.ReLU(), )
+#
+#         # Set advantage layer
+#         self.advantage_hidden_layer = NoisyLinear(in_features, out_features)
+#         self.advantage_layer = NoisyLinear(in_features, out_dim * atom_size)
+#
+#         # Set value layer
+#         self.value_hidden_layer = NoisyLinear(in_features, out_features)
+#         self.value_layer = NoisyLinear(in_features, atom_size)
+#
+#         # Initialize weights
+#         self.apply(self.init_weights)
+#
+#     def init_weights(self, m):
+#         if type(m) == nn.Linear:
+#             torch.nn.init.constant_(m.weight, 0)
+#
+#     def forward(self, x: torch.Tensor) -> torch.Tensor:
+#         """Forward method implementation."""
+#
+#         dist = self.dist(x)
+#         q = torch.sum(dist * self.support, dim=2)
+#         return q
+#
+#     def dist(self, x: torch.Tensor) -> torch.Tensor:
+#         """Get distribution for atoms."""
+#
+#         feature = self.feature_layer(x)
+#         adv_hid = F.relu(self.advantage_hidden_layer(feature))
+#         val_hid = F.relu(self.value_hidden_layer(feature))
+#
+#         advantage = self.advantage_layer(adv_hid).view(-1, self.out_dim, self.atom_size)
+#         value = self.value_layer(val_hid).view(-1, 1, self.atom_size)
+#         q_atoms = value + advantage - advantage.mean(dim=1, keepdim=True)
+#
+#         dist = F.softmax(q_atoms, dim=-1)
+#         dist = dist.clamp(min=1e-3)  # for avoiding nans
+#
+#         return dist
+#
+#     def reset_noise(self):
+#         """Reset all noisy layers."""
+#         self.advantage_hidden_layer.reset_noise()
+#         self.advantage_layer.reset_noise()
+#         self.value_hidden_layer.reset_noise()
+#         self.value_layer.reset_noise()
+
+class RAINBOW:
     """DQN Agent interacting with environment."""
 
     def __init__(
@@ -456,22 +558,23 @@ class DQNAgent:
             replay_buff_size: int,
             batch_size: int,
             target_update: int,
-            seed: int,
+            in_features: int,
+            out_features: int,
+            seed: int = None,
             gamma: float = 0.99,
             learning_rate: float = 0.001,
-            tau: float = 0.001,
+            tau: float = 0.015,
             # PER parameters
-            alpha: float = 0.2,
-            beta: float = 0.6,
+            alpha: float = 0.6,
+            beta: float = 0.4,
             prior_eps: float = 1e-6,
             # Categorical DQN parameters
             v_min: float = 0.0,
-            v_max: float = 150,
+            v_max: float = 1500,
             atom_size: int = 51,
             # N-step Learning
             n_step: int = 3,
-            in_features: int = 19,
-            out_features: int = 19
+
     ):
         """
         Initialize the DQNAgent.
@@ -496,12 +599,13 @@ class DQNAgent:
         """
 
         # Obs and actions spaces
-        obs_dim = len(env.observation_space)
+        obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.n
 
         # Attributes
         self.env = env
         self.batch_size = batch_size
+        self.replay_buff_size = replay_buff_size
         self.target_update = target_update
         self.seed = seed
         self.gamma = gamma
@@ -550,6 +654,15 @@ class DQNAgent:
 
         # mode: train / test
         self.is_test = False
+
+        # If SEED is available
+        if self.seed is not None:
+            seed_torch(self.seed)
+
+        # for name , param in self.dqn.named_parameters():
+        #     if 'weight' in name:
+        #         print(f'Layer: {name}, Shape: {param.shape}')
+        #         print(param.data)
 
     def select_action(self, obs: np.ndarray) -> np.ndarray:
         """
@@ -609,7 +722,7 @@ class DQNAgent:
         """
 
         # Send action to env and get response
-        next_state, reward, terminated, truncated, _ = self.env.step(action)
+        next_state, reward, terminated, truncated, info = self.env.step(action)
 
         # Consider terminated or truncated
         done = terminated or truncated
@@ -629,7 +742,7 @@ class DQNAgent:
         if one_step_transition:
             self.replay_buffer.store(*one_step_transition)
 
-        return next_state, reward, done
+        return next_state, reward, done, info
 
     def update_model(self) -> torch.Tensor:
         """
@@ -675,6 +788,8 @@ class DQNAgent:
 
         # PER: Update priorities
         loss_for_prior = elementwise_loss.detach().cpu().numpy()
+        # loss_for_prior_gpu = elementwise_loss.cuda()
+        # loss_for_prior = loss_for_prior_gpu.detach().cpu().numpy()
         new_priorities = loss_for_prior + self.prior_eps
         self.replay_buffer.update_priorities(indices, new_priorities)
 
@@ -762,83 +877,6 @@ class DQNAgent:
 
         return elementwise_loss
 
-    def train(self, max_steps: int, plotting_interval: int = 2000, monitor_training: int = 1000,
-              saving_model: int = 1000):
-        """
-        Train the DQNAgent.
-
-        Parameters:
-        - max_steps (int): Maximum number of steps for training.
-        - plotting_interval (int, optional): Interval for plotting training progress. Default is 1000.
-        - monitor_training (int, optional): Interval for monitoring training. Default is 1000.
-        """
-
-        self.is_test = False
-        # Initial observation from the reseted environment
-        obs, _ = self.env.reset(seed=self.seed)
-
-        # Initialize var
-        update_cnt = 0
-        losses = []
-        scores = []
-        score = 0
-
-        # Start training
-        for step in range(1, max_steps + 1):
-            # Get action for obs and retrieve env response
-            action = self.select_action(obs)
-            next_obs, reward, done = self.step(action)
-            obs = next_obs
-            score += reward
-
-            # PER: Increase beta
-            fraction = min(step / max_steps, 1.0)
-            self.beta = self.beta + fraction * (1.0 - self.beta)
-
-            # If the episode ends
-            if done:
-                obs, _ = self.env.reset(seed=self.seed)
-                scores.append(score)
-                score = 0
-
-            # If training is ready
-            if len(self.replay_buffer) >= self.batch_size:
-                # Update the model and log the loss
-                loss = self.update_model()
-                losses.append(loss)
-                update_cnt += 1
-
-                # Check if it's time for target network update
-                if update_cnt % self.target_update == 0:
-                    self._target_hard_update()  # hard update
-                    # self._target_soft_update(self.tau)  # soft update
-
-            if step % monitor_training == 0:
-                print(
-                    f"Step: {step} | "
-                    f"Rewards: {round(np.mean(scores[-monitor_training:]), 3)} | "
-                    f"Loss: {round(np.mean(losses[-monitor_training:]), 3)} | "
-                )
-
-            if step % saving_model == 0:
-                # Calculate the current mean reward over the specified monitoring window
-                current_mean_reward = round(np.mean(scores[-monitor_training:]), 3)
-                target_mean_reward = 110
-
-                # Save the model if the current mean reward meets or exceeds the target criterion
-                if current_mean_reward >= target_mean_reward:
-                    model = MODEL_PATH + "dqn_" + str(current_mean_reward) + ".pt"
-                    # Save model
-                    torch.save(self.dqn.state_dict(), model)
-
-            # Plotting (commented out for now)
-            # if step % plotting_interval == 0:
-            #     _plot(step, scores, losses, plotting_interval)
-            #     plt.close()
-
-        # Close env
-        self.env.close()
-
     def _target_hard_update(self):
         """
         Perform a hard update of the target network.
@@ -873,12 +911,12 @@ class DQNAgent:
         for name in target_params:
             target_params[name].data.copy_(tau * online_params[name].data + (1.0 - tau) * target_params[name].data)
 
-    def evaluate_model(self, ) -> None:
+    def evaluate_model(self, environment) -> None:
         """Test the agent."""
         self.is_test = True
 
         node_pairs = list(permutations(NODES_2_TRAIN, 2))
-        self.env = EnvironmentUPC(node_pairs)
+        self.env = environment
 
         for _ in range(len(node_pairs)):
             obs, _ = self.env.reset(seed=self.seed)
@@ -889,41 +927,196 @@ class DQNAgent:
 
             while not done:
                 action = self.select_action(obs)
-                next_obs, reward, done = self.step(action)
+                next_obs, reward, done, info = self.step(action)
                 obs = next_obs
                 score += reward
-                print(f"Step: {step} | {list(obs)} | {reward} | {done}")
+                print(f"Step: {step} | {list(obs)[:9]} | {reward} | {done}")
                 step += 1
 
         self.env.close()
 
-    def load_model(self):
-        model_path = get_highest_score_model()
-        state_dict = torch.load(model_path)
-        # Update the online network with the loaded state dictionary
-        self.dqn.load_state_dict(state_dict)
-        # Update the target network with the state dictionary of the online network
-        self.dqn_target.load_state_dict(self.dqn.state_dict())
+    def load_model(self, model_path: Optional[str] = None) -> None:
+        """
+        Load a pre-trained model's state dictionary.
+
+        Parameters:
+        - model_path (str, optional): Path to the pre-trained model. If None, the highest scoring model is retrieved.
+
+        Raises:
+        - FileNotFoundError: If the specified model_path is not found.
+        - Other relevant exceptions: Add any other exceptions as needed.
+        """
+        try:
+            # If no specific model path is provided, retrieve the highest scoring model
+            if model_path is None:
+                model_path = get_highest_score_model()
+
+            # Load the state dictionary from the specified or default model path
+            state_dict = torch.load(model_path)
+
+            # Update the online network with the loaded state dictionary
+            self.dqn.load_state_dict(state_dict)
+
+            # Update the target network with the state dictionary of the online network
+            self.dqn_target.load_state_dict(self.dqn.state_dict())
+
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"Model file not found at {model_path}.") from e
+
+    def train(self,
+              max_steps: int,
+              warm_up_batches: int,
+              plotting_interval: int = 1000,
+              monitor_training: int = 1000,
+              saving_model: int = 1000,
+              ):
+        """
+        Train the DQNAgent.
+
+        Parameters:
+        - max_steps (int): Maximum number of steps for training.
+        - plotting_interval (int, optional): Interval for plotting training progress. Default is 1000.
+        - monitor_training (int, optional): Interval for monitoring training. Default is 1000.
+        """
+
+        assert (self.replay_buffer.batch_size * warm_up_batches) <= self.replay_buff_size, \
+            "Assertion failed: Insufficient samples in the replay buffer. Increase the replay_buff_size"
+
+        self.is_test = False
+
+        # Initial observation from the reseted environment
+        obs, _ = self.env.reset(seed=self.seed)
+        print(f"RESET: {obs}")
+
+        # Initialize var
+        reached_destination = 0
+        update_cnt = 0
+        losses = []
+        scores = []
+        mean_scores = []
+        mean_losses = []
+        score = 0
+        last_mean_reward = 0
+
+        # Start training
+        for step in range(1, max_steps + 1):
+            # Get action for obs and retrieve env response
+            action = self.select_action(obs)
+            next_obs, reward, done, info = self.step(action)
+            obs = next_obs
+            score += reward
+            # Statistics
+            reached_destination += info['count']
+            print(f"STEP - action: {action}, reward: {reward}, done: {done}, obs: {obs}")
+
+            # PER: Increase beta
+            fraction = min(step / max_steps, 1.0)
+            self.beta = self.beta + fraction * (1.0 - self.beta)
+
+            # If the episode ends
+            if done:
+                obs, _ = self.env.reset(seed=self.seed)
+                scores.append(score)
+                if len(scores) < 50:
+                    mean_scores.append(np.mean(scores[0:]))
+                else:
+                    mean_scores.append(np.mean(scores[-50:]))
+                score = 0
+                print(f"\nRESET: {obs}")
+
+            # Start training after warmup
+            min_samples = self.replay_buffer.batch_size * warm_up_batches
+            if len(self.replay_buffer) >= min_samples:
+                # Update the model and log the loss
+                loss = self.update_model()
+                losses.append(loss)
+                if len(losses) < 50:
+                    mean_losses.append(np.mean(losses[0:]))
+                else:
+                    mean_losses.append(np.mean(losses[-50:]))
+                update_cnt += 1
+
+                # Check if it's time for target network update
+                if update_cnt % self.target_update == 0:
+                    # self._target_hard_update()  # hard update
+                    self._target_soft_update(self.tau)  # soft update
+
+            if step % monitor_training == 0 and len(self.replay_buffer) >= min_samples:
+                print(
+                    f"Step: {step} | "
+                    f"Rewards: {round(np.mean(scores[-monitor_training:]), 3)} | "
+                    f"Loss: {round(np.mean(losses[-monitor_training:]), 5)} | "
+                    f"Reached destination: {reached_destination}"
+                )
+                # Update count of reached destination
+                reached_destination = 0
+
+            if step % saving_model == 0:
+                # Calculate the current mean reward over the specified monitoring window
+                current_mean_reward = round(np.mean(scores[-monitor_training:]), 3)
+
+                # Check if the current mean reward is greater than the last mean reward
+                if current_mean_reward > last_mean_reward:
+                    # Update last_mean_reward with the current mean reward
+                    last_mean_reward = current_mean_reward
+
+                    # Construct the model path with the current mean reward
+                    model_path = MODEL_PATH + "rainbow_" + str(current_mean_reward) + ".pt"
+
+                    # Save the model
+                    torch.save(self.dqn.state_dict(), model_path)
+
+            # Plotting (commented out for now)
+            if step % plotting_interval == 0:
+                _plot(step, scores, mean_scores, losses, mean_losses, plotting_interval)
+                plt.close()
+
+        # Close env
+        print(self.dqn.state_dict())
+        self.env.close()
 
 
 # MAIN CODE
-agent = DQNAgent(
-    env=EnvironmentUPC(),
-    replay_buff_size=10000,
-    batch_size=256,
-    target_update=100,
-    seed=SEED,
+
+# ENV = Env_Test()  # For debug
+ENV = EnvironmentUPC()
+
+agent = RAINBOW(
+    env=ENV,
+    replay_buff_size=50000,
+    batch_size=10,
+    target_update=1000,
     learning_rate=0.0005,
-    tau=0.015,
-    gamma=0.9995,
-    n_step=0,
-    in_features=64,
-    out_features=64,
-    alpha=0.4,
-    beta=0.6)
+    tau=0.85,
+    gamma=0.75,
+    n_step=10,
+    in_features=12,
+    out_features=12,
+    alpha=0.3,
+    beta=0.4,
+    v_max=300,
+    v_min=0,  # NO NEGATIVE VALUES!!!!
+)
 
-agent.train(max_steps=10000)
+agent.train(max_steps=5000, warm_up_batches=20)
 
-print(f"Load the highest scored model from models directory and evaluate")
+
+# #----------------------------------- EVALUATE
+# agent = RAINBOW(
+#     env=ENV,
+#     replay_buff_size=5000,
+#     batch_size=20,
+#     target_update=100,
+#     learning_rate=0.001,
+#     tau=1,
+#     gamma=1,
+#     n_step=0,
+#     in_features=12,
+#     out_features=12,
+#     alpha=0,
+#     beta=0,
+#     v_max=300,
+#     v_min=0,
+# )
 # agent.load_model()
-# agent.evaluate_model()
+# agent.evaluate_model(ENV)

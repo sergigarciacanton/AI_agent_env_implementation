@@ -12,7 +12,7 @@ import os
 # from dronekit import connect, VehicleMode
 # import dronekit
 import math
-from vnf_generator import VNF
+from Utils.vnf_generator import VNF
 
 
 class CAV:
@@ -27,7 +27,7 @@ class CAV:
         self.next_node = None
         self.next_location = None
         config = configparser.ConfigParser()
-        config.read("cav_outdoor.ini")
+        config.read("/home/upc_ai_vecn/Documents/AI_agent_env_implementation/ini_files/cav_outdoor.ini")
         self.general = config['general']
 
         self.logger = logging.getLogger('cav')
