@@ -9,15 +9,13 @@ directed graph.
 # DEPENDENCIES
 import random
 import networkx as nx
-from Env_test.config import (
-    MAX_GPU,
-    MIN_GPU,
-    MAX_RAM,
-    MIN_RAM,
-    MAX_BW,
-    MIN_BW,
+from Env_test.config_test import (
+
     SEED,
     NODES_2_TRAIN,
+    VNF_GPU,
+    VNF_RAM,
+    VNF_BW
 )
 
 from Env_test.upc_graph import get_graph
@@ -32,42 +30,29 @@ if SEED is not None:
 
 
 # FUNCTIONS
-def get_source_and_target_nodes(node_pairs: Optional[List[Tuple]] = None) -> Tuple[int, int]:
-    """
-    Get source and target nodes for training or evaluation.
-
-    Parameters:
-    - node_pairs (Optional[List[Tuple]]): List of node pairs for evaluation.
-
-    Returns:
-    - Tuple[int, int]: Source and target nodes.
-    """
-    # All possible nodes to train on
-    nodes = NODES_2_TRAIN
-
-    if node_pairs is not None:  # Only if evaluating the model
-        source_node, target_node = node_pairs[0], node_pairs[1]
-        return source_node, target_node
-    else:  # Training mode
-        while True:
-            # Randomly select two nodes
-            source_node, target_node = 3, 2 #random.sample(nodes, 2)
-
-            # Check if a path exists between selected nodes
-            if nx.has_path(UPC_GRAPH, source_node, target_node):
-                return source_node, target_node
+def set_nodes_for_route(nodes_for_bg_vehicles, nodes_to_evaluate):
+    # Nodes only for background vehicle
+    if nodes_for_bg_vehicles is not None:
+        source_n, target_n = random.sample(nodes_for_bg_vehicles, 2)
+    # Nodes for evaluation
+    elif nodes_to_evaluate is not None:
+        source_n, target_n = nodes_to_evaluate
+    # Random nodes for training
+    else:
+        source_n, target_n = random.sample(NODES_2_TRAIN, 2)
+    return source_n, target_n
 
 
 # CLASS
 class VNF:
     """ Generate random VNF requests"""
 
-    def __init__(self, node_pairs=None):
+    def __init__(self, nodes_for_bg_vehicles, nodes_to_evaluate):
         # Set the seed
-        self.source_n, self.target_n = get_source_and_target_nodes(node_pairs)
-        self.gpu = random.choice([MIN_GPU, MAX_GPU])
-        self.ram = random.choice([MIN_RAM, MAX_RAM])
-        self.bw = random.choice([MIN_BW, MAX_BW])
+        self.source_n, self.target_n = set_nodes_for_route(nodes_for_bg_vehicles, nodes_to_evaluate)
+        self.gpu = random.choice(VNF_GPU)
+        self.ram = random.choice(VNF_RAM)
+        self.bw = random.choice(VNF_BW)
 
     def get_request(self):
         return [self.source_n, self.target_n, self.gpu, self.ram, self.bw]
@@ -75,3 +60,4 @@ class VNF:
     def set_vnf(self, ns, nt):
         self.source_n = ns
         self.target_n = nt
+

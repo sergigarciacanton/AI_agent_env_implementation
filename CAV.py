@@ -16,7 +16,7 @@ from Utils.vnf_generator import VNF
 
 
 class CAV:
-    def __init__(self):
+    def __init__(self, nodes_to_evaluate=None):
         self.system_os = platform.system()
         self.client_socket = None
         self.connected = False
@@ -54,7 +54,7 @@ class CAV:
         self.vehicle = None
         self.vehicle_active = False
 
-        self.start_cav()
+        self.start_cav(nodes_to_evaluate)
 
     def get_data_by_console(self, data_type, message):
         # Function that reads a console entry asking for data to store into a variable
@@ -345,7 +345,7 @@ class CAV:
             self.vehicle.armed = False
             self.vehicle.close()
 
-    def start_cav(self):
+    def start_cav(self, nodes_to_evaluate):
         # Main function
         try:
             # Get user_id
@@ -377,7 +377,7 @@ class CAV:
             if self.general['training_if'] != 'y' and self.general['training_if'] != 'Y':
                 self.my_vnf = self.generate_vnf()
             else:
-                random_vnf = VNF().get_request()
+                random_vnf = VNF(nodes_to_evaluate=nodes_to_evaluate, nodes_for_bg_vehicles=None).get_request()
                 self.my_vnf = dict(source=random_vnf['source'],
                                    target=random_vnf['target'], gpu=random_vnf['gpu'],
                                    ram=random_vnf['ram'], bw=random_vnf['bw'],

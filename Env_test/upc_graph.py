@@ -1,5 +1,5 @@
 # DEPENDENCIES
-from Env_test.config import EDGES, POSITION
+from Env_test.config_test import EDGES, POSITION
 import networkx as nx
 import matplotlib.pyplot as plt
 from typing import Dict, Any, Tuple

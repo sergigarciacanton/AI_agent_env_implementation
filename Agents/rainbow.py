@@ -2,9 +2,10 @@
 import math
 import random
 import sys
+import time
 from collections import deque
 from itertools import permutations
-from typing import Deque, Dict, List, Tuple, Optional
+from typing import Deque, Dict, List, Tuple, Optional, Any, SupportsFloat
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -18,7 +19,7 @@ from torch.nn.utils import clip_grad_norm_
 from Utils.segmenttree import MinSegmentTree, SumSegmentTree
 from environment import EnvironmentUPC
 from Env_test.env_test import Env_Test
-from config import NODES_2_TRAIN, MODEL_PATH
+from config import NODES_2_TRAIN, MODEL_PATH, SERGI_PLOTS
 from Utils.graph_upc import get_graph
 import os
 import re
@@ -27,20 +28,25 @@ np.set_printoptions(threshold=sys.maxsize)
 
 
 # FUNCTIONS
-def _plot(frame_idx: int, scores: List[float], mean_scores: List[float], losses: List[float], mean_losses: List[float],
-          mean_ratio: int):
+def _plot(step: int, scores: List[float], mean_scores: List[float], losses: List[float], mean_losses: List[float],
+          mean_ratio: int, save_path: str):
     """Plot the training progresses."""
     clear_output(True)
     plt.figure(figsize=(20, 5))
     plt.subplot(121)
-    plt.title('step %s. score: %s' % (frame_idx, np.mean(scores[-mean_ratio:])))
+    plt.title('step %s. score: %s' % (step, np.mean(scores[-mean_ratio:])))
     plt.plot(scores, label='Real')
     plt.plot(mean_scores, label='Promig')
     plt.subplot(122)
     plt.title('loss')
     plt.plot(losses, label='Real')
     plt.plot(mean_losses, label='Promig')
+
+    if save_path:
+        plt.savefig(save_path)
+
     plt.show()
+    plt.close()
 
 
 def _get_n_step_info(n_step_buffer: Deque, gamma: float) -> Tuple[np.int64, np.ndarray, bool]:
@@ -253,7 +259,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         self.min_tree = MinSegmentTree(tree_capacity)
 
     def store(self, obs: np.ndarray, act: int, rew: float, next_obs: np.ndarray, done: bool, ) -> Tuple[
-            np.ndarray, np.ndarray, float, np.ndarray, bool]:
+        np.ndarray, np.ndarray, float, np.ndarray, bool]:
 
         """Store experience and priority."""
         transition = super().store(obs, act, rew, next_obs, done)
@@ -347,7 +353,7 @@ class NoisyLinear(nn.Module):
 
     """
 
-    def __init__(self, in_features: int, out_features: int, std_init: float = 0.5, ):
+    def __init__(self, in_features: int, out_features: int, std_init: float = 0.6, ):
         """Initialization."""
         super(NoisyLinear, self).__init__()
 
@@ -570,8 +576,8 @@ class RAINBOW:
             prior_eps: float = 1e-6,
             # Categorical DQN parameters
             v_min: float = 0.0,
-            v_max: float = 1500,
-            atom_size: int = 51,
+            v_max: float = 300,
+            atom_size: int = 91,
             # N-step Learning
             n_step: int = 3,
 
@@ -703,7 +709,7 @@ class RAINBOW:
 
         return selected_action
 
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, np.float64, bool]:
+    def step(self, action: np.ndarray) -> tuple[Any, SupportsFloat, bool, dict[str, Any]]:
         """
         Takes a step in the environment based on the provided action.
 
@@ -915,22 +921,24 @@ class RAINBOW:
         """Test the agent."""
         self.is_test = True
 
-        node_pairs = list(permutations(NODES_2_TRAIN, 2))
-        self.env = environment
+        nodes_to_evaluate = list(permutations(NODES_2_TRAIN, 2))
 
-        for _ in range(len(node_pairs)):
-            obs, _ = self.env.reset(seed=self.seed)
+        self.env = ENV
+
+        for i in range(len(nodes_to_evaluate)):
+            obs, _ = self.env.reset(seed=self.seed, nodes_to_evaluate=nodes_to_evaluate[i])
             done = False
             score = 0
             step = 0
             print(f"\nEvaluation for the {(obs[0], obs[1])}:")
+
 
             while not done:
                 action = self.select_action(obs)
                 next_obs, reward, done, info = self.step(action)
                 obs = next_obs
                 score += reward
-                print(f"Step: {step} | {list(obs)[:9]} | {reward} | {done}")
+                print(f"{step} | action: {action} | rew: {reward} | done: {done} |  obs: {list(obs)}")
                 step += 1
 
         self.env.close()
@@ -963,13 +971,8 @@ class RAINBOW:
         except FileNotFoundError as e:
             raise FileNotFoundError(f"Model file not found at {model_path}.") from e
 
-    def train(self,
-              max_steps: int,
-              warm_up_batches: int,
-              plotting_interval: int = 1000,
-              monitor_training: int = 1000,
-              saving_model: int = 1000,
-              ):
+    def train(self, max_steps: int, warm_up_batches: int, plotting_interval: int = 1000, monitor_training: int = 1000,
+              saving_model: int = 1000, ):
         """
         Train the DQNAgent.
 
@@ -986,7 +989,7 @@ class RAINBOW:
 
         # Initial observation from the reseted environment
         obs, _ = self.env.reset(seed=self.seed)
-        print(f"RESET: {obs}")
+        # print(f"RESET: {obs[:2]}")
 
         # Initialize var
         reached_destination = 0
@@ -996,7 +999,7 @@ class RAINBOW:
         mean_scores = []
         mean_losses = []
         score = 0
-        last_mean_reward = 0
+        last_mean_reward = 60
 
         # Start training
         for step in range(1, max_steps + 1):
@@ -1007,7 +1010,7 @@ class RAINBOW:
             score += reward
             # Statistics
             reached_destination += info['count']
-            print(f"STEP - action: {action}, reward: {reward}, done: {done}, obs: {obs}")
+            # print(f"{step} - action: {action}, rew: {reward}, done: {done}, obs: {next_obs[:2]}")
 
             # PER: Increase beta
             fraction = min(step / max_steps, 1.0)
@@ -1016,13 +1019,13 @@ class RAINBOW:
             # If the episode ends
             if done:
                 obs, _ = self.env.reset(seed=self.seed)
+                # print(f"\nRESET: {obs[:2]}")
                 scores.append(score)
                 if len(scores) < 50:
                     mean_scores.append(np.mean(scores[0:]))
                 else:
                     mean_scores.append(np.mean(scores[-50:]))
                 score = 0
-                print(f"\nRESET: {obs}")
 
             # Start training after warmup
             min_samples = self.replay_buffer.batch_size * warm_up_batches
@@ -1068,55 +1071,54 @@ class RAINBOW:
 
             # Plotting (commented out for now)
             if step % plotting_interval == 0:
-                _plot(step, scores, mean_scores, losses, mean_losses, plotting_interval)
-                plt.close()
+                _plot(step, scores, mean_scores, losses, mean_losses, plotting_interval,
+                      save_path=SERGI_PLOTS + str(step) + '.png')
 
         # Close env
-        print(self.dqn.state_dict())
+        # print(self.dqn.state_dict())
         self.env.close()
 
 
 # MAIN CODE
 
-# ENV = Env_Test()  # For debug
-ENV = EnvironmentUPC()
+ENV = Env_Test()  # For debug
+# ENV = EnvironmentUPC()
 
 agent = RAINBOW(
     env=ENV,
-    replay_buff_size=50000,
+    replay_buff_size=1000000,
     batch_size=10,
     target_update=1000,
-    learning_rate=0.0005,
+    learning_rate=0.0001,
     tau=0.85,
-    gamma=0.75,
-    n_step=10,
-    in_features=12,
-    out_features=12,
-    alpha=0.3,
+    gamma=0.85,
+    n_step=11,
+    in_features=19,
+    out_features=19,
+    alpha=0.5,
     beta=0.4,
     v_max=300,
     v_min=0,  # NO NEGATIVE VALUES!!!!
 )
 
-agent.train(max_steps=5000, warm_up_batches=20)
+agent.train(max_steps=200000, warm_up_batches=200)
 
-
-# #----------------------------------- EVALUATE
-# agent = RAINBOW(
-#     env=ENV,
-#     replay_buff_size=5000,
-#     batch_size=20,
-#     target_update=100,
-#     learning_rate=0.001,
-#     tau=1,
-#     gamma=1,
-#     n_step=0,
-#     in_features=12,
-#     out_features=12,
-#     alpha=0,
-#     beta=0,
-#     v_max=300,
-#     v_min=0,
-# )
-# agent.load_model()
-# agent.evaluate_model(ENV)
+# ----------------------------------- EVALUATE -----------------------------------
+agent = RAINBOW(
+    env=ENV,
+    replay_buff_size=5000,
+    batch_size=20,
+    target_update=100,
+    learning_rate=0.001,
+    tau=1,
+    gamma=1,
+    n_step=1,
+    in_features=19,
+    out_features=19,
+    alpha=0,
+    beta=0,
+    v_max=300,
+    v_min=0,
+)
+agent.load_model()
+agent.evaluate_model(ENV)

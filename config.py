@@ -1,11 +1,12 @@
 # ******************************* ENVIRONMENT *******************************
 
-
-NUM_CAVS: int = 1
+NODES_2_TRAIN = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+BACKGROUND_VEHICLES_ROUTE_NODES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 TIMESTEPS_LIMIT: int = 20
 MODEL_PATH: str = "/home/upc_ai_vecn/Documents/AI_agent_env_implementation/Agents/Models/Rainbow/"
+SERGI_PLOTS: str = "/home/upc_ai_vecn/Documents/AI_agent_env_implementation/Sergi_plots/All_nodes_8_bg_vehicles/"
 SEED: int = 1976
-BACKGROUND_VEHICLES = 0
+BACKGROUND_VEHICLES = 10
 # ******************************* GRAPH **************************************
 # FECs coverage range
 FECS_RANGE = {
@@ -52,23 +53,21 @@ EDGES_COST = {
 }
 
 # ***************************** VNF *******************************************
-MIN_GPU: int = 2
-MAX_GPU: int = 4
-MIN_RAM: int = 4
-MAX_RAM: int = 8
-MIN_BW: int = 1
-MAX_BW: int = 5
 
-FEC_MAX_GPU = 256
-FEC_MAX_RAM = 32
-FEC_MAX_BW = 100
+VNF_GPU: list = [2, 4]
+VNF_RAM: list = [4, 8]
+VNF_BW: list = [5, 25]
 
-VECN_INIT = {
-    1:  (FEC_MAX_GPU, FEC_MAX_RAM, FEC_MAX_BW),
-    2:  (FEC_MAX_GPU, FEC_MAX_RAM, FEC_MAX_BW),
-    3:  (FEC_MAX_GPU, FEC_MAX_RAM, FEC_MAX_BW),
-    4:  (FEC_MAX_GPU, FEC_MAX_RAM, FEC_MAX_BW),
+FEC_MAX_GPU: int = 16
+FEC_MAX_RAM: int = 32
+FEC_MAX_BW: int = 100
+
+VECN_INIT: dict = {
+    0: (FEC_MAX_GPU, FEC_MAX_RAM, FEC_MAX_BW),
+    1: (FEC_MAX_GPU, FEC_MAX_RAM, FEC_MAX_BW),
+    2: (FEC_MAX_GPU, FEC_MAX_RAM, FEC_MAX_BW),
+    3: (FEC_MAX_GPU, FEC_MAX_RAM, FEC_MAX_BW),
 }
 
-# NODES_2_TRAIN = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-NODES_2_TRAIN = [2, 3]
+
+

@@ -7,8 +7,8 @@ import numpy as np
 from gymnasium.spaces import Discrete, MultiDiscrete
 from typing import Tuple, Dict, Any, SupportsFloat, TypeVar, Union, List, Iterable
 from Env_test.cav import CAV
-from Env_test.config import (
-    POSITION,
+from config import (
+    NODES_POSITION,
     TIMESTEPS_LIMIT,
     VECN_INIT,
     FECS_RANGE,
@@ -16,6 +16,8 @@ from Env_test.config import (
     FEC_MAX_RAM,
     FEC_MAX_BW,
     FEC_MAX_GPU,
+NODES_2_TRAIN,
+BACKGROUND_VEHICLES_ROUTE_NODES
 )
 from Env_test.upc_graph import get_graph
 
@@ -59,7 +61,7 @@ class Env_Test(gym.Env):
     def __init__(self, render_mode: str = "human") -> None:
         # Attributes
 
-        self.background_traffic = None
+        self.background_vehicles = None
         self.reward = None
         self.terminated = None
         self.cav = None
@@ -67,10 +69,10 @@ class Env_Test(gym.Env):
         self.timestep_limit = None
 
         # Action space
-        self.action_space = Discrete(len(POSITION.keys()))
+        self.action_space = Discrete(len(NODES_POSITION.keys()))
 
         # Observation space
-        num_obs_features = 21  # Total number of observation features [VNF, CAV_info, VECN]
+        num_obs_features = 20  # Total number of observation features [VNF, CAV_info, VECN]
         self.observation_space = MultiDiscrete(np.array([1] * num_obs_features), dtype=np.int32)
 
         # Initialize Barcelona graph
@@ -96,7 +98,7 @@ class Env_Test(gym.Env):
 
         return min_hops
 
-    def initialize_cav(self, node_pairs) -> CAV:
+    def initialize_cav(self, nodes_for_bg_vehicles, nodes_to_evaluate) -> CAV:
         """
         Initialize and configure a CAV instance.
 
@@ -104,7 +106,7 @@ class Env_Test(gym.Env):
             CAV: The initialized CAV instance.
         """
         # Instantiate a CAV
-        cav = CAV(node_pairs)
+        cav = CAV(nodes_for_bg_vehicles=nodes_for_bg_vehicles, nodes_to_evaluate=nodes_to_evaluate)
 
         # Set CAV id using its unique obj. id
         cav.set_cav_id(id(cav))
@@ -114,7 +116,7 @@ class Env_Test(gym.Env):
 
         return cav
 
-    def new_cav(self, node_pairs=None) -> CAV:
+    def new_cav(self, nodes_for_bg_vehicles=None, nodes_to_evaluate=None) -> CAV:
         """
         Create a new CAV, ensuring resources in at least one closest FEC.
 
@@ -125,7 +127,7 @@ class Env_Test(gym.Env):
 
         for iteration in range(1, max_iterations + 1):
             # Initialize a new CAV
-            cav = self.initialize_cav(node_pairs)
+            cav = self.initialize_cav(nodes_for_bg_vehicles=nodes_for_bg_vehicles, nodes_to_evaluate=nodes_to_evaluate)
 
             # Find the closest FECs to the current CAV's position
             potential_paths_and_fecs = [
@@ -185,8 +187,8 @@ class Env_Test(gym.Env):
                 self.reward += cav_trajectory_cost
 
                 # Check if the current node has been revisited multiple times and add additional reward
-                times_revisited_node = self.cav.cav_route.count(self.cav.current_n)
-                self.reward += times_revisited_node * cav_trajectory_cost if times_revisited_node >= 2 else 0
+                # times_revisited_node = self.cav.cav_route.count(self.cav.current_n)
+                # self.reward += times_revisited_node * cav_trajectory_cost if times_revisited_node >= 2 else 0
 
                 # Set the termination flag
                 self.terminated = False
@@ -235,7 +237,7 @@ class Env_Test(gym.Env):
 
         # Update FEC-related information in the CAV object
         vehicle.set_my_fec(fec_to_request)
-        vehicle.set_hops_to_target(self.hops_to_target(vehicle))
+        # vehicle.set_hops_to_target(self.hops_to_target(vehicle))
 
         return vehicle
 
@@ -355,7 +357,7 @@ class Env_Test(gym.Env):
             None
         """
 
-        for vehicle_id, vehicle in self.background_traffic.items():
+        for vehicle_id, vehicle in self.background_vehicles.items():
             # Select vehicle FEC
             vehicle_trajectory = (vehicle.prefix_route[0], vehicle.prefix_route[1])
             requesting_fec_for_vehicle = find_fec(vehicle_trajectory)
@@ -381,7 +383,7 @@ class Env_Test(gym.Env):
             # Check if the vehicle has reached its final destination
             if vehicle.current_n == vehicle.vnf.get_request()[1]:
                 self.update_resources_in_previous_fec(vehicle)
-                self.background_traffic[vehicle_id] = self.new_cav()
+                self.background_vehicles[vehicle_id] = self.new_cav(nodes_to_evaluate=self.nodes_to_evaluate, nodes_for_bg_vehicles=None)
 
             # print(f"CAV: {self.cav.debug_cav(self.timestep_limit)}\n"
             #       f"VEH: {vehicle_id} - {vehicle.debug_cav(self.timestep_limit)}")
@@ -483,7 +485,7 @@ class Env_Test(gym.Env):
             self.update_resources_in_previous_fec(self.cav)
 
     # *************************************** RESET ********************************************************************
-    def reset(self, seed: int = None, options: Dict[str, Any] = None) -> Tuple[Any, Dict[str, Any]]:
+    def reset(self, seed: int = None, nodes_to_evaluate=None) -> Tuple[Any, Dict[str, Any]]:
         super().reset(seed=seed)
 
         # Timesteps limit count initialization
@@ -493,7 +495,8 @@ class Env_Test(gym.Env):
         self.vecn = copy.deepcopy(VECN_INIT)
 
         # Initialize the CAV
-        self.cav = self.new_cav()
+        self.nodes_to_evaluate = nodes_to_evaluate
+        self.cav = self.new_cav(nodes_to_evaluate=self.nodes_to_evaluate, nodes_for_bg_vehicles=None)
 
         # Initial Obs
         initial_obs = self._get_obs()
@@ -504,7 +507,8 @@ class Env_Test(gym.Env):
         self.reward = 0
 
         # Initialize background vehicles, each with its VNF and prefix route
-        self.background_traffic = {i: self.new_cav() for i in range(BACKGROUND_VEHICLES)}
+        self.background_vehicles = {i: self.new_cav(nodes_to_evaluate=None, nodes_for_bg_vehicles=BACKGROUND_VEHICLES_ROUTE_NODES) for i in range(BACKGROUND_VEHICLES)}
+
         # print(f"\nRESET\n{self.cav.debug_cav(self.timestep_limit)}")
         return initial_obs, info
 
@@ -525,7 +529,7 @@ class Env_Test(gym.Env):
         truncated = self.timestep_limit <= 0
 
         # Info
-        if self.terminated and self.reward >= 100:
+        if self.terminated and self.reward >= 0:
             info = {'count': 1}
         else:
             info = {'count': 0}

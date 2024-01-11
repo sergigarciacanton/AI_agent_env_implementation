@@ -9,7 +9,7 @@ import networkx as nx
 
 # CLASSES
 class CAV:
-    def __init__(self, node_pairs=None, initial_node=None, initial_id=None, ):
+    def __init__(self, nodes_for_bg_vehicles, nodes_to_evaluate,  initial_node=None, initial_id=None, ):
         """
         Initialize a CAV instance with default values.
 
@@ -18,12 +18,12 @@ class CAV:
         - initial_id (optional): The initial identifier for the CAV.
         """
         self.id = initial_id  # Obj id
-        self.vnf = VNF(node_pairs)  # Random VNF
+        self.vnf = VNF(nodes_for_bg_vehicles, nodes_to_evaluate)  # Random VNF
         self.current_n = initial_node if initial_node is not None else self.vnf.get_request()[0]
         self.previous_n = self.current_n
         self.cav_route = [self.current_n]
         self.my_fec = -1
-        self.hops_to_target = 0
+        # self.hops_to_target = 0
         self.prefix_route = nx.dijkstra_path(G=get_graph(), source=self.vnf.get_request()[0],
                                              target=self.vnf.get_request()[1])  # Only for background vehicles
 
@@ -82,7 +82,8 @@ class CAV:
         A list [int, int, int]: Current node, MEC identifier, and remaining timesteps.
         """
         # Provide context on the meaning of remaining timesteps.
-        return [self.current_n, self.my_fec, remain_timesteps, self.hops_to_target]
+        # return [self.current_n, self.my_fec, remain_timesteps, self.hops_to_target]
+        return [self.current_n, self.my_fec, remain_timesteps]
 
     def delete_cav(self):
         """
