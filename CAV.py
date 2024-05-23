@@ -27,7 +27,7 @@ class CAV:
         self.next_node = None
         self.next_location = None
         config = configparser.ConfigParser()
-        config.read("/home/user/Documents/AI_agent_env_implementation/ini_files/cav_outdoor.ini")
+        config.read("/home/sergi/Documents/AI_agent_env_implementation/ini_files/cav_outdoor.ini")
         self.general = config['general']
 
         self.logger = logging.getLogger('cav')
@@ -165,6 +165,15 @@ class CAV:
             self.logger.critical('[!] System OS not supported! Please, stop program...')
             return
 
+    def get_fec_to_connect(self):
+        if (self.my_vnf['current_node'] == 0 or
+                self.my_vnf['current_node'] == 1 or
+                self.my_vnf['current_node'] == 4 or
+                self.my_vnf['current_node'] == 5):
+            return 0
+        else:
+            return 1
+
     def get_ip_to_connect(self):
         if self.my_vnf['source'] == 0 or self.my_vnf['source'] == 1 or self.my_vnf['source'] == 4 \
                 or self.my_vnf['source'] == 5:
@@ -183,7 +192,7 @@ class CAV:
 
     def handover(self, previous_fec, new_fec):
         # Function that handles handovers. First disconnects from current FEC and after connects to the new one
-        self.logger.debug('[D] Performing handover to ' + new_fec)
+        self.logger.debug('[D] Performing handover to ' + str(new_fec))
         self.disconnect(False, previous_fec)
         self.fec_connect(new_fec)
 
@@ -205,7 +214,7 @@ class CAV:
                     self.connected = False
                 elif self.system_os == 'Linux':
                     process_disconnect = subprocess.Popen(
-                        'nmcli con down "' + self.general['wifi_ssid'] + ' ' + fec_id + '"',
+                        'nmcli con down "' + self.general['wifi_ssid'] + ' ' + str(fec_id) + '"',
                         shell=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE)
@@ -226,7 +235,7 @@ class CAV:
                 while not self.connected:
                     process_connect = subprocess.Popen(
                         self.general['wifi_handler_file'] + ' /ConnectAP "' + self.general[
-                            'wifi_ssid'] + '" "' + fec_id_or_ip + '"',
+                            'wifi_ssid'] + '" "' + str(fec_id_or_ip) + '"',
                         shell=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE)
@@ -242,20 +251,24 @@ class CAV:
                         time.sleep(1)
             elif self.system_os == 'Linux':
                 while not self.connected:
-                    process_connect = subprocess.Popen('nmcli connection up "Test301 ' + str(fec_id_or_ip) + '"',
-                                                       shell=True,
-                                                       stdout=subprocess.PIPE,
-                                                       stderr=subprocess.PIPE)
-                    process_connect.communicate()
-                    time.sleep(2)
-                    if self.general['wifi_ssid'] in str(subprocess.check_output("iwgetid")):
-                        self.logger.debug('[D] Connected!')
-                        self.connected = True
-                    else:
-                        self.logger.warning('[!] Connection not established! Killing query and trying again...')
-                        process_connect.kill()
+                    try:
+                        process_connect = subprocess.Popen('nmcli connection up "Test301 ' + str(fec_id_or_ip) + '"',
+                                                           shell=True,
+                                                           stdout=subprocess.PIPE,
+                                                           stderr=subprocess.PIPE)
                         process_connect.communicate()
-                        time.sleep(1)
+                        time.sleep(3)
+                        if self.general['wifi_ssid'] in str(subprocess.check_output("iwgetid")):
+                            self.logger.debug('[D] Connected!')
+                            self.connected = True
+                        else:
+                            self.logger.warning('[!] Connection not established! Killing query and trying again...')
+                            process_connect.kill()
+                            process_connect.communicate()
+                            time.sleep(1)
+                    except subprocess.CalledProcessError:
+                        print('Error!')
+                        pass
             else:
                 self.logger.critical('[!] System OS not supported! Please, stop program...')
                 return
@@ -335,7 +348,7 @@ class CAV:
         elif self.system_os == 'Windows' and self.general['video_if'] == 'y' or self.general['video_if'] == 'Y':
             os.system("taskkill /im vlc.exe")
 
-        self.disconnect(False)
+        self.disconnect(False, self.my_vnf['cav_fec'])
 
         if self.system_os == 'Linux' and self.general['wireshark_if'] != 'n' and self.general['wireshark_if'] != 'N':
             os.system("sudo screen -S ue-wireshark -X stuff '^C\n'")
@@ -369,7 +382,7 @@ class CAV:
                 exit(-1)
 
             # In case of being connected to a network, disconnect
-            self.disconnect(True)
+            # self.disconnect(True, None)
 
             # Generate VNF
             stop = False
@@ -386,12 +399,9 @@ class CAV:
 
             # Get the best FEC in terms of power and connect to it
             if self.general['training_if'] != 'y' and self.general['training_if'] != 'Y':
-                best_mac = ''
-                while best_mac == '':
-                    time.sleep(2)
-                    best_mac = self.get_mac_to_connect()
+                best_fec = self.get_fec_to_connect()
 
-                self.fec_connect(best_mac)
+                self.fec_connect(best_fec)
             else:
                 self.fec_connect(self.get_ip_to_connect())
 
