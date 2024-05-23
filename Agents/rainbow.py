@@ -18,7 +18,7 @@ from IPython.display import clear_output
 from torch.nn.utils import clip_grad_norm_
 from Utils.segmenttree import MinSegmentTree, SumSegmentTree
 from environment import EnvironmentUPC
-from Env_test.env_test import Env_Test
+# from Env_test.env_test import Env_Test
 from config import NODES_2_TRAIN, MODEL_PATH, SERGI_PLOTS
 from Utils.graph_upc import get_graph
 import os
@@ -1081,8 +1081,8 @@ class RAINBOW:
 
 # MAIN CODE
 
-ENV = Env_Test()  # For debug
-# ENV = EnvironmentUPC()
+# ENV = Env_Test()  # For debug
+ENV = EnvironmentUPC()
 
 agent = RAINBOW(
     env=ENV,
@@ -1101,7 +1101,7 @@ agent = RAINBOW(
     v_min=0,  # NO NEGATIVE VALUES!!!!
 )
 
-agent.train(max_steps=200000, warm_up_batches=200)
+agent.train(max_steps=20, warm_up_batches=200)
 
 # ----------------------------------- EVALUATE -----------------------------------
 agent = RAINBOW(

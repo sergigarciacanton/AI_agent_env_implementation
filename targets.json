@@ -1,0 +1,10 @@
+[
+    {
+        "targets": [
+            "10.2.20.5:8000"
+        ],
+        "labels": {
+            "job": "my_dynamic_device"
+        }
+    }
+]

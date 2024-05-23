@@ -27,7 +27,7 @@ class CAV:
         self.next_node = None
         self.next_location = None
         config = configparser.ConfigParser()
-        config.read("/home/upc_ai_vecn/Documents/AI_agent_env_implementation/ini_files/cav_outdoor.ini")
+        config.read("/home/user/Documents/AI_agent_env_implementation/ini_files/cav_outdoor.ini")
         self.general = config['general']
 
         self.logger = logging.getLogger('cav')
@@ -181,13 +181,13 @@ class CAV:
         else:
             self.logger.error('[!] Non-existing VNF! Can not choose FEC to connect')
 
-    def handover(self, address):
+    def handover(self, previous_fec, new_fec):
         # Function that handles handovers. First disconnects from current FEC and after connects to the new one
-        self.logger.debug('[D] Performing handover to ' + address)
-        self.disconnect(False)
-        self.fec_connect(address)
+        self.logger.debug('[D] Performing handover to ' + new_fec)
+        self.disconnect(False, previous_fec)
+        self.fec_connect(new_fec)
 
-    def disconnect(self, starting):
+    def disconnect(self, starting, fec_id):
         # Disconnects from current FEC
         try:
             if not starting and self.connected:
@@ -204,9 +204,8 @@ class CAV:
                     process_disconnect.communicate()
                     self.connected = False
                 elif self.system_os == 'Linux':
-                    num = subprocess.check_output(['nmcli', 'connection']).decode().split('\n')[1].split(' ')[1]
                     process_disconnect = subprocess.Popen(
-                        'nmcli con down "' + self.general['wifi_ssid'] + ' ' + num + '"',
+                        'nmcli con down "' + self.general['wifi_ssid'] + ' ' + fec_id + '"',
                         shell=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE)
@@ -220,14 +219,14 @@ class CAV:
         except Exception as e:
             self.logger.exception(e)
 
-    def fec_connect(self, address):
+    def fec_connect(self, fec_id_or_ip):
         # This function manages connecting to a new FEC given its MAC address
         if self.general['training_if'] != 'y' and self.general['training_if'] != 'Y':
             if self.system_os == 'Windows':
                 while not self.connected:
                     process_connect = subprocess.Popen(
                         self.general['wifi_handler_file'] + ' /ConnectAP "' + self.general[
-                            'wifi_ssid'] + '" "' + address + '"',
+                            'wifi_ssid'] + '" "' + fec_id_or_ip + '"',
                         shell=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE)
@@ -243,7 +242,7 @@ class CAV:
                         time.sleep(1)
             elif self.system_os == 'Linux':
                 while not self.connected:
-                    process_connect = subprocess.Popen('nmcli d wifi connect ' + address + ' password 1234567890',
+                    process_connect = subprocess.Popen('nmcli connection up "Test301 ' + str(fec_id_or_ip) + '"',
                                                        shell=True,
                                                        stdout=subprocess.PIPE,
                                                        stderr=subprocess.PIPE)
@@ -263,7 +262,7 @@ class CAV:
 
             host = self.general['fec_ip']
         else:
-            host = address
+            host = fec_id_or_ip
         port = int(self.general['fec_port'])  # socket server port number
         self.client_socket = socket.socket()
         ready = False
@@ -448,10 +447,10 @@ class CAV:
                         # Move to next point
                         if self.general['training_if'] != 'y' and self.general['training_if'] != 'Y':
                             if json_data['cav_fec'] is not self.my_vnf['cav_fec']:
-                                self.handover(json_data['fec_mac'])
+                                self.handover(self.my_vnf['cav_fec'], json_data['cav_fec'])
                         else:
                             if json_data['cav_fec'] is not self.my_vnf['cav_fec']:
-                                self.handover(json_data['fec_ip'])
+                                self.handover(None, json_data['fec_ip'])
                         if self.vehicle is not None and self.vehicle_active is False:
                             # point = dronekit.LocationGlobal(float(self.next_location.split(',')[0]),
                             #                                 float(self.next_location.split(',')[1]), 0)
@@ -465,8 +464,8 @@ class CAV:
                                                 self.vehicle.location.global_frame.lon) > 3:
                                 time.sleep(1)
                         else:
-                            if self.general['training_if'] != 'y' and self.general['training_if'] != 'Y':
-                                input('[*] Press Enter when getting to the next point...')
+                            # if self.general['training_if'] != 'y' and self.general['training_if'] != 'Y':
+                            input('[*] Press Enter when getting to the next point...')
 
                         # Update state vector
                         self.logger.debug('[D] Reaching next point! Sending changes to FEC...')

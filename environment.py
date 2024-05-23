@@ -74,7 +74,7 @@ class EnvironmentUPC(gym.Env):
         self.state_changed = False
         config = configparser.ConfigParser()
 
-        config.read("/home/upc_ai_vecn/Documents/AI_agent_env_implementation/ini_files/env_annex.ini")
+        config.read("/home/user/Documents/AI_agent_env_implementation/ini_files/env_annex.ini")
         self.general = config['general']
 
         self.logger = logging.getLogger('env')
