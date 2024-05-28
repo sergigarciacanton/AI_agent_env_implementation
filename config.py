@@ -77,8 +77,8 @@
 NODES_2_TRAIN = [0, 1, 2, 3, 4, 5, 6, 7]
 BACKGROUND_VEHICLES_ROUTE_NODES = [0, 1, 2, 3, 4, 5, 6, 7]
 TIMESTEPS_LIMIT: int = 20
-MODEL_PATH: str = "/home/sergi/Documents/AI_agent_env_implementation/Agents/Models/Rainbow/"
-SERGI_PLOTS: str = "/home/sergi/Documents/AI_agent_env_implementation/Sergi_plots/All_nodes_8_bg_vehicles/"
+MODEL_PATH: str = "Agents/Models/Rainbow/"
+SERGI_PLOTS: str = "Sergi_plots/All_nodes_8_bg_vehicles/"
 SEED: int = 1976
 BACKGROUND_VEHICLES = 10
 # ******************************* GRAPH **************************************
