@@ -13,8 +13,17 @@ from dronekit import connect, VehicleMode
 import dronekit
 import math
 from Utils.vnf_generator import VNF
+from prometheus_client import start_http_server, Gauge
+import multiprocessing
 
-
+def prometheus_server(transmit):
+    # Stops server
+    server,t = start_http_server(addr='10.0.0.11', port=9000)
+    while transmit.value:
+        time.sleep(0.001)
+    server.shutdown()
+    t.join()
+        
 class CAV:
     def __init__(self, nodes_to_evaluate=None):
         self.system_os = platform.system()
@@ -29,7 +38,10 @@ class CAV:
         config = configparser.ConfigParser()
         config.read("ini_files/cav_outdoor.ini")
         self.general = config['general']
-
+        self.conn_status_metric = Gauge('Connection_status', 'State of the CAV connection')
+        self.handover_time_metric = Gauge('Handover_time', 'Duration of the handover')
+        self.action_time_metric = Gauge('Action_time', 'Time elapsed until an action is received')
+        start_http_server(9000)
         self.logger = logging.getLogger('cav')
         self.logger.setLevel(int(self.general['log_level']))
         self.logger.addHandler(logging.FileHandler(self.general['log_file_name'], mode='w', encoding='utf-8'))
@@ -193,8 +205,11 @@ class CAV:
     def handover(self, previous_fec, new_fec):
         # Function that handles handovers. First disconnects from current FEC and after connects to the new one
         self.logger.debug('[D] Performing handover to ' + str(new_fec))
+        start_time = time.time()
         self.disconnect(False, previous_fec)
         self.fec_connect(new_fec)
+        end_time = time.time()
+        self.handover_time_metric.set(end_time-start_time)
 
     def disconnect(self, starting, fec_id):
         # Disconnects from current FEC
@@ -262,6 +277,8 @@ class CAV:
                         if self.general['wifi_ssid'] in str(subprocess.check_output("iwgetid")):
                             self.logger.debug('[D] Connected!')
                             self.connected = True
+                            self.conn_status_metric.set(int(fec_id_or_ip))
+
                         else:
                             self.logger.warning('[!] Connection not established! Killing query and trying again...')
                             process_connect.kill()
@@ -326,6 +343,7 @@ class CAV:
             math.cos(lat2 * deg_to_rad) * pow(math.sin(d_lng / 2), 2)
         b = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return 6371000 * b
+        
 
     def kill_thread(self, thread_id):
         # This functions kills a thread. It is used for stopping the program or disconnecting from a FEC
@@ -340,7 +358,7 @@ class CAV:
             self.logger.debug("[D] Successfully killed thread " + str(thread_id))
         except Exception as e:
             self.logger.exception(e)
-
+        
     def stop_program(self):
         self.logger.debug('[!] Ending...')
 
@@ -483,8 +501,11 @@ class CAV:
                                                   data=dict(previous_node=self.my_vnf['previous_node'],
                                                             current_node=self.my_vnf['current_node'],
                                                             cav_fec=self.my_vnf['cav_fec'])))
+                        sent_time = time.time()
                         self.client_socket.send(message.encode())  # send message
                         data = self.client_socket.recv(1024).decode()  # receive response
+                        final_time = time.time()
+                        self.action_time_metric.set((final_time-sent_time)*1000)
                         json_data = json.loads(data)
                         self.logger.debug('[D] Response from server: ' + str(json_data))
                         if json_data['res'] == 200:
@@ -494,6 +515,7 @@ class CAV:
                                 self.next_location = json_data['location']
                             if json_data['next_node'] == -1:
                                 self.logger.debug('[D] Car reached target!')
+                                self.conn_status_metric.set(-1)
                                 if self.general['training_if'] != 'y' and self.general['training_if'] != 'Y':
                                     key_in = input('[?] Want to send a new VNF? Y/n: (Y) ')
                                 else:
@@ -531,12 +553,7 @@ class CAV:
                             stop = True
                     if stop:
                         break
-                message = json.dumps(dict(type="bye"))  # take input
-                self.client_socket.send(message.encode())  # send message
-                data = self.client_socket.recv(1024).decode()  # receive response
-                json_data = json.loads(data)
-                self.logger.debug('[D] Bye return code: ' + str(json_data['res']))
-                self.client_socket.close()  # close the connection
+                self.disconnect(False, self.fec_id)
 
             except ConnectionRefusedError:
                 self.logger.error('[!] FEC server not available! Please, press enter to stop client.')
