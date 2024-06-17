@@ -102,9 +102,9 @@ class EnvironmentUPC(gym.Env):
 
     def check_fec_resources(self, fec_id):
         return (
-                self.vnf_and_cav_info['1']['gpu'] <= self.fec_dict[str(fec_id)]['gpu'] and
-                self.vnf_and_cav_info['1']['ram'] <= self.fec_dict[str(fec_id)]['ram'] and
-                self.vnf_and_cav_info['1']['bw'] <= self.fec_dict[str(fec_id)]['bw']
+                self.vnf_and_cav_info[1]['gpu'] <= self.fec_dict[str(fec_id)]['gpu'] and
+                self.vnf_and_cav_info[1]['ram'] <= self.fec_dict[str(fec_id)]['ram'] and
+                self.vnf_and_cav_info[1]['bw'] <= self.fec_dict[str(fec_id)]['bw']
         )
 
     def _reward_fn(self, cav_next_node) -> None:
@@ -117,9 +117,9 @@ class EnvironmentUPC(gym.Env):
         self.terminated = False
 
         # CAV data
-        vnf_source_node = self.vnf_and_cav_info['1']['source']
-        vnf_target_node = self.vnf_and_cav_info['1']['target']
-        cav_current_node = self.vnf_and_cav_info['1']['current_node']
+        vnf_source_node = self.vnf_and_cav_info[1]['source']
+        vnf_target_node = self.vnf_and_cav_info[1]['target']
+        cav_current_node = self.vnf_and_cav_info[1]['current_node']
 
         # All possible shortest paths from source_node to target_node
         all_possible_shortest_paths = list(
@@ -159,9 +159,9 @@ class EnvironmentUPC(gym.Env):
         def callback(ch, method, properties, body):
             self.logger.debug("[D] Received. Key: " + str(method.routing_key) + ". Message: " + body.decode("utf-8"))
             if str(method.routing_key) == 'fec':
-                self.fec_dict = json.loads(body.decode('utf-8'))
+                self.fec_list = {int(k): v for k, v in json.loads(body.decode('utf-8')).items()}
             elif str(method.routing_key) == 'vnf':
-                self.vnf_and_cav_info = json.loads(body.decode('utf-8'))
+                self.vnf_and_cav_info = {int(k): v for k, v in json.loads(body.decode('utf-8')).items()}
                 self.state_changed = True
 
         channel.basic_consume(
@@ -173,9 +173,8 @@ class EnvironmentUPC(gym.Env):
         self.cav = CAV(self.nodes_to_evaluate)
 
     def get_obs(self):
-        vnf = copy.deepcopy(self.vnf_and_cav_info['1'])
+        vnf = copy.deepcopy(self.vnf_and_cav_info[1])
         vnf.pop('previous_node')
-        vnf.pop('time_steps')
 
         fec_copy = copy.deepcopy(self.fec_dict)
         fecs = list()
@@ -231,13 +230,13 @@ class EnvironmentUPC(gym.Env):
 
     def process_cav_trajectory(self, action):
         # Determine the next trajectory and FEC for the CAV
-        current_node = int(self.vnf_and_cav_info['1']['current_node'])
+        current_node = int(self.vnf_and_cav_info[1]['current_node'])
         next_node = action
         next_cav_trajectory = (current_node, next_node)
         fec_to_request = get_next_hop_fec(next_cav_trajectory)
 
         # Check if CAV's FEC differs from the selected FEC
-        current_fec_connection = self.vnf_and_cav_info['1']['cav_fec']
+        current_fec_connection = self.vnf_and_cav_info[1]['cav_fec']
         if fec_to_request != current_fec_connection:
             fec_resource_ok = self.check_fec_resources(fec_to_request)
         else:
@@ -246,7 +245,7 @@ class EnvironmentUPC(gym.Env):
         if fec_resource_ok:  # Resources OK
             self.cav_route.append(action)
             self._reward_fn(action)
-            self.send_action_to_fec(action, self.vnf_and_cav_info['1']['cav_fec'])
+            self.send_action_to_fec(action, self.vnf_and_cav_info[1]['cav_fec'])
 
             # Wait for a state change
             while not self.state_changed:
@@ -259,20 +258,19 @@ class EnvironmentUPC(gym.Env):
 
     def check_episode_ending(self, truncated, vnf_and_cav_info_copy):
         # CAV reaches destination
-        if '1' not in self.vnf_and_cav_info.keys():
+        if 1 not in self.vnf_and_cav_info.keys():
             # Update CAV info
             vnf_and_cav_info_copy['previous_node'] = vnf_and_cav_info_copy['current_node']
             vnf_and_cav_info_copy['current_node'] = vnf_and_cav_info_copy['target']
 
             # Remove obsolete info
             vnf_and_cav_info_copy.pop('previous_node')
-            vnf_and_cav_info_copy.pop('time_steps')
+            # vnf_and_cav_info_copy.pop('time_steps')
 
             # Get VECN
             fec_copy = copy.deepcopy(self.fec_dict)
             fecs = list()
             for fec in fec_copy.values():
-                fec.pop('ip')
                 fec.pop('connected_users')
                 fecs.append(list(fec.values()))
 
@@ -286,8 +284,10 @@ class EnvironmentUPC(gym.Env):
                     dtype=np.int16)[0]
 
             self.terminated = True
-            # Kill CAV thread
-            self.cav_thread.join()
+
+            if self.general['training_if'] == 'y' or self.general['training_if'] == 'Y':
+                # Kill CAV thread
+                self.cav_thread.join()
 
         # CAV still moves
         else:
@@ -295,11 +295,11 @@ class EnvironmentUPC(gym.Env):
             next_obs = self.get_obs()
             # manage truncation among FECs
             if truncated:
-                self.send_action_to_fec(-1, self.vnf_and_cav_info['1']['cav_fec'])
+                self.send_action_to_fec(-1, self.vnf_and_cav_info[1]['cav_fec'])
                 while not self.state_changed:
                     time.sleep(0.001)
                 self.state_changed = False
-                if '1' in self.vnf_and_cav_info.keys():
+                if 1 in self.vnf_and_cav_info.keys():
                     self.logger.error('[!] Truncated VNF not killed!')
                 else:
                     time.sleep(0.003)  # Just to give time to FECs to remove VNF from their lists
@@ -374,12 +374,13 @@ class EnvironmentUPC(gym.Env):
 
         self.nodes_to_evaluate = nodes_to_evaluate
 
-        # CAV initialization
-        start = time.time()
-        self.cav_thread = threading.Thread(target=self.start_cav)
-        self.cav_thread.start()
-        end = time.time() - start
-        # print(f"[DEBUG] Init CAV time: {end}")
+        if self.general['training_if'] == 'y' or self.general['training_if'] == 'Y':
+            # CAV initialization
+            start = time.time()
+            self.cav_thread = threading.Thread(target=self.start_cav)
+            self.cav_thread.start()
+            end = time.time() - start
+            # print(f"[DEBUG] Init CAV time: {end}")
 
         # Logs
         self.logger.debug('Starting new episode...')
@@ -394,7 +395,7 @@ class EnvironmentUPC(gym.Env):
 
         # Build CAV route
         self.cav_route = []
-        self.cav_route.append(self.vnf_and_cav_info['1']['current_node'])
+        self.cav_route.append(self.vnf_and_cav_info[1]['current_node'])
 
         # Initial obs
         initial_obs = self.get_obs()
@@ -425,7 +426,7 @@ class EnvironmentUPC(gym.Env):
         self.timesteps_limit -= 1
 
         # Copy VNF and CAV info from control
-        vnf_and_cav_info_copy = copy.deepcopy(self.vnf_and_cav_info['1'])
+        vnf_and_cav_info_copy = copy.deepcopy(self.vnf_and_cav_info[1])
 
         # Move CAV
         self.process_cav_trajectory(action)

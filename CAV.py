@@ -9,21 +9,11 @@ import logging
 import sys
 from colorlog import ColoredFormatter
 import os
-from dronekit import connect, VehicleMode
-import dronekit
 import math
 from Utils.vnf_generator import VNF
 from prometheus_client import start_http_server, Gauge
-import multiprocessing
 
-def prometheus_server(transmit):
-    # Stops server
-    server,t = start_http_server(addr='10.0.0.11', port=9000)
-    while transmit.value:
-        time.sleep(0.001)
-    server.shutdown()
-    t.join()
-        
+
 class CAV:
     def __init__(self, nodes_to_evaluate=None):
         self.system_os = platform.system()
@@ -36,7 +26,7 @@ class CAV:
         self.next_node = None
         self.next_location = None
         config = configparser.ConfigParser()
-        config.read("ini_files/cav_outdoor.ini")
+        config.read("../ini_files/cav_outdoor.ini")
         self.general = config['general']
         self.conn_status_metric = Gauge('Connection_status', 'State of the CAV connection')
         self.handover_time_metric = Gauge('Handover_time', 'Duration of the handover')
@@ -50,6 +40,7 @@ class CAV:
         self.logger.addHandler(stream_handler)
         logging.getLogger('pika').setLevel(logging.WARNING)
         if self.general['rover_if'] != 'n' and self.general['rover_if'] != 'N':
+            from dronekit import connect, VehicleMode
             self.vehicle = connect(self.general['rover_conn'], wait_ready=True, baud=115200)
             self.logger.info("[I] Connected to vehicle")
 
@@ -332,7 +323,7 @@ class CAV:
         bw = self.get_data_by_console(int, '[*] Introduce the needed bandwidth (Mbps): ')
 
         return dict(source=source, target=target, gpu=gpu, ram=ram, bw=bw, previous_node=source,
-                    current_node=source, cav_fec=self.fec_id, time_steps=-1, user_id=self.user_id)
+                    current_node=source, cav_fec=self.fec_id, user_id=self.user_id)
 
     def distance(self, lat1, lng1, lat2, lng2):
         # Finds the distance between two sets of coordinates
@@ -477,6 +468,7 @@ class CAV:
                             if json_data['cav_fec'] is not self.my_vnf['cav_fec']:
                                 self.handover(None, json_data['fec_ip'])
                         if self.vehicle is not None and self.vehicle_active is False:
+                            import dronekit
                             point = dronekit.LocationGlobal(float(self.next_location.split(',')[0]),
                                                             float(self.next_location.split(',')[1]), 0)
                             self.logger.debug('[D] Moving towards first target...')
@@ -520,7 +512,7 @@ class CAV:
                                     key_in = input('[?] Want to send a new VNF? Y/n: (Y) ')
                                 else:
                                     key_in = 'n'
-                                if key_in != 'n':
+                                if key_in != 'n' and key_in != 'N':
                                     self.my_vnf = None
                                     stop = False
                                 else:

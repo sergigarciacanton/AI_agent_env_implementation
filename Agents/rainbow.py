@@ -18,7 +18,7 @@ from IPython.display import clear_output
 from torch.nn.utils import clip_grad_norm_
 from Utils.segmenttree import MinSegmentTree, SumSegmentTree
 from environment import EnvironmentUPC
-# from Env_test.env_test import Env_Test
+# from reduced_env_test.env_test import Env_Test
 from config import NODES_2_TRAIN, MODEL_PATH, SERGI_PLOTS
 from Utils.graph_upc import get_graph
 import os
@@ -485,75 +485,6 @@ class Network(nn.Module):
         self.value_hidden_layer.reset_noise()
         self.value_layer.reset_noise()
 
-
-# class Network(nn.Module):
-#     def __init__(self,
-#                  in_dim: int,
-#                  out_dim: int,
-#                  atom_size: int,
-#                  support: torch.Tensor,
-#                  in_features: int = 128,
-#                  out_features: int = 128):
-#         """Initialization."""
-#         super(Network, self).__init__()
-#
-#         # Set the random seed for PyTorch
-#         torch.manual_seed(42)
-#
-#         # Set the random seed for NumPy if your code involves NumPy operations
-#         np.random.seed(42)
-#
-#         self.support = support
-#         self.out_dim = out_dim
-#         self.atom_size = atom_size
-#
-#         # Set common feature layer
-#         self.feature_layer = nn.Sequential(nn.Linear(in_dim, out_features), nn.ReLU(), )
-#
-#         # Set advantage layer
-#         self.advantage_hidden_layer = NoisyLinear(in_features, out_features)
-#         self.advantage_layer = NoisyLinear(in_features, out_dim * atom_size)
-#
-#         # Set value layer
-#         self.value_hidden_layer = NoisyLinear(in_features, out_features)
-#         self.value_layer = NoisyLinear(in_features, atom_size)
-#
-#         # Initialize weights
-#         self.apply(self.init_weights)
-#
-#     def init_weights(self, m):
-#         if type(m) == nn.Linear:
-#             torch.nn.init.constant_(m.weight, 0)
-#
-#     def forward(self, x: torch.Tensor) -> torch.Tensor:
-#         """Forward method implementation."""
-#
-#         dist = self.dist(x)
-#         q = torch.sum(dist * self.support, dim=2)
-#         return q
-#
-#     def dist(self, x: torch.Tensor) -> torch.Tensor:
-#         """Get distribution for atoms."""
-#
-#         feature = self.feature_layer(x)
-#         adv_hid = F.relu(self.advantage_hidden_layer(feature))
-#         val_hid = F.relu(self.value_hidden_layer(feature))
-#
-#         advantage = self.advantage_layer(adv_hid).view(-1, self.out_dim, self.atom_size)
-#         value = self.value_layer(val_hid).view(-1, 1, self.atom_size)
-#         q_atoms = value + advantage - advantage.mean(dim=1, keepdim=True)
-#
-#         dist = F.softmax(q_atoms, dim=-1)
-#         dist = dist.clamp(min=1e-3)  # for avoiding nans
-#
-#         return dist
-#
-#     def reset_noise(self):
-#         """Reset all noisy layers."""
-#         self.advantage_hidden_layer.reset_noise()
-#         self.advantage_layer.reset_noise()
-#         self.value_hidden_layer.reset_noise()
-#         self.value_layer.reset_noise()
 
 class RAINBOW:
     """DQN Agent interacting with environment."""
@@ -1104,21 +1035,21 @@ agent = RAINBOW(
 agent.train(max_steps=20, warm_up_batches=200)
 
 # ----------------------------------- EVALUATE -----------------------------------
-agent = RAINBOW(
-    env=ENV,
-    replay_buff_size=5000,
-    batch_size=20,
-    target_update=100,
-    learning_rate=0.001,
-    tau=1,
-    gamma=1,
-    n_step=1,
-    in_features=19,
-    out_features=19,
-    alpha=0,
-    beta=0,
-    v_max=300,
-    v_min=0,
-)
-agent.load_model()
-agent.evaluate_model(ENV)
+# agent = RAINBOW(
+#     env=ENV,
+#     replay_buff_size=5000,
+#     batch_size=20,
+#     target_update=100,
+#     learning_rate=0.001,
+#     tau=1,
+#     gamma=1,
+#     n_step=1,
+#     in_features=19,
+#     out_features=19,
+#     alpha=0,
+#     beta=0,
+#     v_max=300,
+#     v_min=0,
+# )
+# agent.load_model()
+# agent.evaluate_model(ENV)
