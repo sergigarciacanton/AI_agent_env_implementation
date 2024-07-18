@@ -12,6 +12,10 @@ import os
 import math
 from Utils.vnf_generator import VNF
 from prometheus_client import start_http_server, Gauge
+import tkinter as tk
+from PIL import Image, ImageTk
+import threading
+import queue
 
 
 class CAV:
@@ -26,7 +30,7 @@ class CAV:
         self.next_node = None
         self.next_location = None
         config = configparser.ConfigParser()
-        config.read("../ini_files/cav_outdoor.ini")
+        config.read("./ini_files/cav_outdoor.ini")
         self.general = config['general']
         self.conn_status_metric = Gauge('Connection_status', 'State of the CAV connection')
         self.handover_time_metric = Gauge('Handover_time', 'Duration of the handover')
@@ -57,6 +61,8 @@ class CAV:
             self.vehicle = None
             self.vehicle_active = False
 
+        self.task_queue = queue.Queue()
+        self.tkinter_thread = None
         self.start_cav(nodes_to_evaluate)
 
     def get_data_by_console(self, data_type, message):
@@ -323,7 +329,7 @@ class CAV:
         bw = self.get_data_by_console(int, '[*] Introduce the needed bandwidth (Mbps): ')
 
         return dict(source=source, target=target, gpu=gpu, ram=ram, bw=bw, previous_node=source,
-                    current_node=source, cav_fec=self.fec_id, user_id=self.user_id)
+                    current_node=source, cav_fec=self.fec_id)
 
     def distance(self, lat1, lng1, lat2, lng2):
         # Finds the distance between two sets of coordinates
@@ -367,6 +373,11 @@ class CAV:
             self.vehicle.armed = False
             self.vehicle.close()
 
+    def run_tkinter_app(self):
+        root = tk.Tk()
+        app = StreetGrid(root, self.task_queue, self.my_vnf['source'], self.my_vnf['target'], self.general)
+        root.mainloop()
+
     def start_cav(self, nodes_to_evaluate):
         # Main function
         try:
@@ -406,6 +417,13 @@ class CAV:
                                    previous_node=random_vnf['source'],
                                    current_node=random_vnf['source'], cav_fec=self.fec_id)
 
+            # Start of the GUI thread
+            if self.general['gui_if'] == 'y' or self.general['gui_if'] == 'Y':
+                self.tkinter_thread = threading.Thread(target=self.run_tkinter_app)
+                self.tkinter_thread.daemon = True 
+                self.tkinter_thread.start()
+
+
             # Get the best FEC in terms of power and connect to it
             if self.general['wifi_if'] == 'y' or self.general['wifi_if'] == 'Y':
                 self.fec_connect(self.get_fec_to_connect())
@@ -417,7 +435,7 @@ class CAV:
                     os.system("sudo screen -S ue-stream -m -d nvgstplayer-1.0 -i " + str(self.general['video_link']))
             elif self.system_os == 'Windows':
                 if video_if == 'y' or video_if == 'Y':
-                    os.system("vlc " + self.general['video_link'])
+                    os.system("vlc " + self.general['video_link'])		
 
             try:
                 while True:
@@ -467,6 +485,10 @@ class CAV:
                         else:
                             if json_data['cav_fec'] is not self.my_vnf['cav_fec']:
                                 self.handover(None, json_data['fec_ip'])
+
+                        # Tkinter to moving state
+                        self.task_queue.put({"command": "transit", "curr": self.my_vnf["current_node"], "next": self.next_node})
+
                         if self.vehicle is not None and self.vehicle_active is False:
                             import dronekit
                             point = dronekit.LocationGlobal(float(self.next_location.split(',')[0]),
@@ -493,6 +515,7 @@ class CAV:
                                                   data=dict(previous_node=self.my_vnf['previous_node'],
                                                             current_node=self.my_vnf['current_node'],
                                                             cav_fec=self.my_vnf['cav_fec'])))
+                        self.task_queue.put({"command": "arrived", "dest": self.my_vnf["current_node"]})
                         sent_time = time.time()
                         self.client_socket.send(message.encode())  # send message
                         data = self.client_socket.recv(1024).decode()  # receive response
@@ -517,6 +540,7 @@ class CAV:
                                     stop = False
                                 else:
                                     self.my_vnf = None
+                                    self.task_queue.put({"command": "exit"})
                                     stop = True
                             else:
                                 stop = False
@@ -560,6 +584,92 @@ class CAV:
         except Exception as e:
             self.logger.exception(e)
             self.stop_program()
+
+
+class StreetGrid:
+    def __init__(self, master, task_queue, source, destination, general):
+        self.master = master
+        self.task_queue = task_queue
+        self.master.title("StreetGrid")	
+        self.scenario_img_path = "scenario4.png"
+        self.car_img_path = "car.png"
+        self.flag_img_path = "flag.png"
+        self.canvas = tk.Canvas(master, width=1200, height=500)
+        self.canvas.pack()
+        self.general = general
+        self.load_background_img()
+        self.load_car_img(source)
+        self.load_flag_img(destination)
+
+        self.check_queue()
+
+    def load_background_img(self):
+        self.bg_image = Image.open(self.scenario_img_path)
+        self.bg_photo = ImageTk.PhotoImage(self.bg_image)
+        self.canvas.create_image(0, 0, anchor="nw", image=self.bg_photo)
+
+    def load_car_img(self, node):
+        pos = self.general[('img_node_'+ str(node))].split(',')
+        x = int(pos[0])
+        y = int(pos[1])
+        self.car_image = Image.open(self.car_img_path)
+        self.car_image = self.car_image.resize((100, 100))
+        self.car_photo = ImageTk.PhotoImage(self.car_image)
+        self.car = self.canvas.create_image(x, y, anchor="center", image=self.car_photo)
+
+    def load_flag_img(self, node):
+        pos = self.general[('img_node_'+ str(node))].split(',')
+        x = int(pos[0])
+        y = int(pos[1])
+        self.flag_image = Image.open(self.flag_img_path)
+        self.flag_image = self.flag_image.resize((50, 50))
+        self.flag_photo = ImageTk.PhotoImage(self.flag_image)
+        self.flag = self.canvas.create_image(x+30, y+50, anchor="center", image=self.flag_photo)
+
+    def set_car_angle(self, angle):
+        self.car_image = Image.open(self.car_img_path)
+        self.car_image = self.car_image.resize((100, 100))
+        self.car_image = self.car_image.rotate(angle, expand=True)
+        self.car_photo = ImageTk.PhotoImage(self.car_image)
+        self.canvas.itemconfig(self.car, image=self.car_photo)
+
+    def car_in_transit(self, prev_node, next_node):
+        prev_pos = self.general[('img_node_'+ str(prev_node))].split(',')
+        next_pos = self.general[('img_node_'+ str(next_node))].split(',')
+        if int(prev_pos[0]) > int(next_pos[0]):
+            self.set_car_angle(90)
+        elif int(prev_pos[0]) < int(next_pos[0]):
+            self.set_car_angle(-90)
+        if int(prev_pos[1]) > int(next_pos[1]):
+            self.set_car_angle(0)
+        elif int(prev_pos[1]) < int(next_pos[1]):
+            self.set_car_angle(180)
+        x = (int(prev_pos[0]) + int(next_pos[0]))/2
+        y = (int(prev_pos[1]) + int(next_pos[1]))/2
+        self.canvas.coords(self.car, x, y)
+
+    def car_arrived(self, dest_node):
+        dest_pos = self.general[('img_node_'+ str(dest_node))].split(',')
+        x = int(dest_pos[0])
+        y = int(dest_pos[1])
+        self.canvas.coords(self.car, x, y)   
+
+
+    def check_queue(self):
+        while not self.task_queue.empty():
+            task = self.task_queue.get()
+            if task['command'] == "transit":
+                current_node = task['curr']
+                next_node = task['next']
+                self.car_in_transit(current_node, next_node)
+            elif task['command'] == "arrived":
+                dest_node = task['dest']
+                self.car_arrived(dest_node)
+            elif task['command'] == "exit":
+                self.master.quit()
+        self.master.after(100, self.check_queue) 
+
+
 
 
 if __name__ == '__main__':
