@@ -420,8 +420,9 @@ class CAV:
             # Start of the GUI thread
             if self.general['gui_if'] == 'y' or self.general['gui_if'] == 'Y':
                 self.tkinter_thread = threading.Thread(target=self.run_tkinter_app)
-                self.tkinter_thread.daemon = True
+                self.tkinter_thread.daemon = True 
                 self.tkinter_thread.start()
+
 
             # Get the best FEC in terms of power and connect to it
             if self.general['wifi_if'] == 'y' or self.general['wifi_if'] == 'Y':
@@ -434,7 +435,7 @@ class CAV:
                     os.system("sudo screen -S ue-stream -m -d nvgstplayer-1.0 -i " + str(self.general['video_link']))
             elif self.system_os == 'Windows':
                 if video_if == 'y' or video_if == 'Y':
-                    os.system("vlc " + self.general['video_link'])
+                    os.system("vlc " + self.general['video_link'])		
 
             try:
                 while True:
@@ -486,8 +487,8 @@ class CAV:
                                 self.handover(None, json_data['fec_ip'])
 
                         # Tkinter to moving state
-                        self.task_queue.put(
-                            {"command": "transit", "curr": self.my_vnf["current_node"], "next": self.next_node})
+
+                        self.task_queue.put({"command": "transit", "curr": self.my_vnf["current_node"], "next": self.next_node})
 
                         if self.vehicle is not None and self.vehicle_active is False:
                             import dronekit
@@ -590,7 +591,7 @@ class StreetGrid:
     def __init__(self, master, task_queue, source, destination, general):
         self.master = master
         self.task_queue = task_queue
-        self.master.title("StreetGrid")
+        self.master.title("StreetGrid")	
         self.scenario_img_path = "scenario4.png"
         self.car_img_path = "car.png"
         self.flag_img_path = "flag.png"
@@ -610,6 +611,7 @@ class StreetGrid:
 
     def load_car_img(self, node):
         pos = self.general[('img_node_' + str(node))].split(',')
+
         x = int(pos[0])
         y = int(pos[1])
         self.car_image = Image.open(self.car_img_path)
@@ -626,6 +628,7 @@ class StreetGrid:
         self.flag_photo = ImageTk.PhotoImage(self.flag_image)
         self.flag = self.canvas.create_image(x + 30, y + 50, anchor="center", image=self.flag_photo)
 
+
     def set_car_angle(self, angle):
         self.car_image = Image.open(self.car_img_path)
         self.car_image = self.car_image.resize((100, 100))
@@ -636,6 +639,7 @@ class StreetGrid:
     def car_in_transit(self, prev_node, next_node):
         prev_pos = self.general[('img_node_' + str(prev_node))].split(',')
         next_pos = self.general[('img_node_' + str(next_node))].split(',')
+
         if int(prev_pos[0]) > int(next_pos[0]):
             self.set_car_angle(90)
         elif int(prev_pos[0]) < int(next_pos[0]):
@@ -653,6 +657,7 @@ class StreetGrid:
         x = int(dest_pos[0])
         y = int(dest_pos[1])
         self.canvas.coords(self.car, x, y)
+
 
     def check_queue(self):
         while not self.task_queue.empty():
