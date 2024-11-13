@@ -16,13 +16,14 @@ import torch.nn.functional as F
 import torch.optim as optim
 from IPython.display import clear_output
 from torch.nn.utils import clip_grad_norm_
-from Utils.segmenttree import MinSegmentTree, SumSegmentTree
+from segmenttree import MinSegmentTree, SumSegmentTree
 from reduced_environment import EnvironmentUPC
 # from reduced_env_test.env_test import Env_Test
 from reduced_env_test.config_test import NODES_2_TRAIN, MODEL_PATH, SERGI_PLOTS
 from reduced_env_test.upc_graph import get_graph
 import os
 import re
+from prometheus_client import start_http_server, Gauge
 
 np.set_printoptions(threshold=sys.maxsize)
 
@@ -464,17 +465,21 @@ class Network(nn.Module):
 
     def dist(self, x: torch.Tensor) -> torch.Tensor:
         """Get distribution for atoms."""
+        try:
+            feature = self.feature_layer(x)
+            adv_hid = F.relu(self.advantage_hidden_layer(feature))
+            val_hid = F.relu(self.value_hidden_layer(feature))
 
-        feature = self.feature_layer(x)
-        adv_hid = F.relu(self.advantage_hidden_layer(feature))
-        val_hid = F.relu(self.value_hidden_layer(feature))
+            advantage = self.advantage_layer(adv_hid).view(-1, self.out_dim, self.atom_size)
+            value = self.value_layer(val_hid).view(-1, 1, self.atom_size)
+            q_atoms = value + advantage - advantage.mean(dim=1, keepdim=True)
 
-        advantage = self.advantage_layer(adv_hid).view(-1, self.out_dim, self.atom_size)
-        value = self.value_layer(val_hid).view(-1, 1, self.atom_size)
-        q_atoms = value + advantage - advantage.mean(dim=1, keepdim=True)
-
-        dist = F.softmax(q_atoms, dim=-1)
-        dist = dist.clamp(min=1e-3)  # for avoiding nans
+            dist = F.softmax(q_atoms, dim=-1)
+            dist = dist.clamp(min=1e-3)  # for avoiding nans
+        except RuntimeError as e:
+            print(e)
+            print(x)
+            exit(-1)
 
         return dist
 
@@ -595,6 +600,9 @@ class RAINBOW:
         # If SEED is available
         if self.seed is not None:
             seed_torch(self.seed)
+
+        #Prometheus metrics
+        self.agent_time = Gauge('Agent_time', 'Time elapsed until the agent gives an action')
 
         # for name , param in self.dqn.named_parameters():
         #     if 'weight' in name:
@@ -917,6 +925,7 @@ class RAINBOW:
             "Assertion failed: Insufficient samples in the replay buffer. Increase the replay_buff_size"
 
         self.is_test = False
+        start_http_server(addr='10.2.20.1', port=8000)
 
         # Initial observation from the reseted environment
         obs, _ = self.env.reset(seed=self.seed)
@@ -935,7 +944,10 @@ class RAINBOW:
         # Start training
         for step in range(1, max_steps + 1):
             # Get action for obs and retrieve env response
+            start_time = time.time()
             action = self.select_action(obs)
+            end_time = time.time()
+            self.agent_time.set((end_time - start_time)*1000)
             next_obs, reward, done, info = self.step(action)
             obs = next_obs
             score += reward
