@@ -12,7 +12,7 @@ import torch.optim as optim
 from IPython.display import clear_output
 from typing import Dict, List, Tuple
 import networkx as nx
-from Utils.graph_upc import get_graph
+from graph_upc import get_graph
 from config import MODEL_PATH, SEED, EVALUATION_RESULTS
 
 # Set display options to show all rows and columns

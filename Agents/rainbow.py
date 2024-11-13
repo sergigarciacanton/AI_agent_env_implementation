@@ -2,7 +2,6 @@
 import math
 import random
 import sys
-import time
 from collections import deque
 from itertools import permutations
 from typing import Deque, Dict, List, Tuple, Optional, Any, SupportsFloat
@@ -16,11 +15,11 @@ import torch.nn.functional as F
 import torch.optim as optim
 from IPython.display import clear_output
 from torch.nn.utils import clip_grad_norm_
-from Utils.segmenttree import MinSegmentTree, SumSegmentTree
+from segmenttree import MinSegmentTree, SumSegmentTree
 from environment import EnvironmentUPC
 # from reduced_env_test.env_test import Env_Test
 from config import NODES_2_TRAIN, MODEL_PATH, SERGI_PLOTS
-from Utils.graph_upc import get_graph
+from graph_upc import get_graph
 import os
 import re
 

@@ -1,7 +1,7 @@
 # Environment conditions
 NODES_2_TRAIN: list = [0, 1, 2, 3, 4, 5, 6, 7]
 BACKGROUND_VEHICLES_ROUTE_NODES = [0, 1, 2, 3, 4, 5, 6, 7]
-SEED: int = 1976
+SEED: int = None
 TIMESTEPS_LIMIT: int = 20
 BACKGROUND_VEHICLES: int = 0
 MODEL_PATH: str = "/home/user/Documents/AI_agent_env_implementation/Agents/Models/Rainbow/"

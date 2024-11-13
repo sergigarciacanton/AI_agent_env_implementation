@@ -14,7 +14,7 @@ import copy
 import gymnasium as gym
 from colorlog import ColoredFormatter
 from CAV import CAV
-from Utils.graph_upc import get_graph
+from graph_upc import get_graph
 from typing import Optional, Dict, Any, Tuple
 from config import (
     TIMESTEPS_LIMIT,
@@ -27,6 +27,7 @@ from config import (
 from itertools import chain
 from gymnasium.spaces import Discrete, MultiDiscrete
 from background_vehicles import BACKGROUND_VEHICLE
+import zmq
 
 
 # FUNCTIONS
@@ -84,13 +85,8 @@ class EnvironmentUPC(gym.Env):
         stream_handler.setFormatter(ColoredFormatter('%(log_color)s%(message)s'))
         self.logger.addHandler(stream_handler)
         logging.getLogger('pika').setLevel(logging.WARNING)
-        self.rabbit_conn = pika.BlockingConnection(
-            pika.ConnectionParameters(host=self.general['control_ip'], port=self.general['rabbit_port'],
-                                      credentials=pika.PlainCredentials(self.general['control_username'],
-                                                                        self.general['control_password'])))
-        self.subscribe_thread = threading.Thread(target=self.subscribe, args=(self.rabbit_conn, 'fec vnf'))
-        self.subscribe_thread.daemon = True
-        self.subscribe_thread.start()
+        self.context = zmq.Context()
+        self.zeromq_subscribe_thread = threading.Thread(target=self.subscribe)
         self.cav_thread = None
 
         # Observation space
@@ -99,6 +95,16 @@ class EnvironmentUPC(gym.Env):
 
         # Action space
         self.action_space = Discrete(len(NODES_POSITION.keys()))
+
+        #Set up ZeroMQ
+        host = self.general['control_ip']
+        zero_port = self.general['zeromq_port']
+        self.zero_conn = self.context.socket(zmq.SUB)
+        address = "tcp://" + host + ":" + zero_port
+        self.zero_conn.connect(address)
+        self.zero_conn.subscribe("")
+        self.zeromq_subscribe_thread.daemon = True
+        self.zeromq_subscribe_thread.start()
 
     def check_fec_resources(self, fec_id):
         return (
@@ -142,32 +148,23 @@ class EnvironmentUPC(gym.Env):
             if self.cav_route in all_possible_shortest_paths:
                 self.reward += 200
 
-    def subscribe(self, conn, key_string):
-        channel = conn.channel()
-
-        channel.exchange_declare(exchange=self.general['control_exchange_name'], exchange_type='direct')
-
-        queue = channel.queue_declare(queue='', exclusive=True).method.queue
-
-        keys = key_string.split(' ')
-        for key in keys:
-            channel.queue_bind(
-                exchange=self.general['control_exchange_name'], queue=queue, routing_key=key)
-
+    def subscribe(self):
+        stop = False
         self.logger.info('[I] Waiting for published data...')
+        message = None
+        while not stop:
+            try:
+                message = json.loads(self.zero_conn.recv_json())
+            except zmq.ContextTerminated:
+                pass
 
-        def callback(ch, method, properties, body):
-            self.logger.debug("[D] Received. Key: " + str(method.routing_key) + ". Message: " + body.decode("utf-8"))
-            if str(method.routing_key) == 'fec':
-                self.fec_dict = {int(k): v for k, v in json.loads(body.decode('utf-8')).items()}
-            elif str(method.routing_key) == 'vnf':
-                self.vnf_and_cav_info = {int(k): v for k, v in json.loads(body.decode('utf-8')).items()}
+            self.logger.debug("[D] Received message. Key: " + str(message["key"]) + ". Message: " + message["body"])
+
+            if str(message["key"]) == 'fec':
+                self.fec_dict = {int(k): v for k, v in json.loads(message["body"]).items()}
+            elif str(message["key"]) == 'vnf':
+                self.vnf_and_cav_info = {int(k): v for k, v in json.loads(message["body"]).items()}
                 self.state_changed = True
-
-        channel.basic_consume(
-            queue=queue, on_message_callback=callback, auto_ack=True)
-
-        channel.start_consuming()
 
     def start_cav(self,):
         self.cav = CAV(self.nodes_to_evaluate)
@@ -219,14 +216,14 @@ class EnvironmentUPC(gym.Env):
         return min(hops)
 
     def close(self):
+        self.context.term()
         killed_threads = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(self.subscribe_thread.ident),
                                                                     ctypes.py_object(SystemExit))
         if killed_threads == 0:
-            raise ValueError("Thread ID " + str(self.subscribe_thread.ident) + " does not exist!")
+            raise ValueError("Thread ID " + str(self.zeromq_subscribe_thread.ident) + " does not exist!")
         elif killed_threads > 1:
-            ctypes.pythonapi.PyThreadState_SetAsyncExc(self.subscribe_thread.ident, 0)
-        self.logger.debug('[D] Successfully killed thread ' + str(self.subscribe_thread.ident))
-        self.subscribe_thread.join()
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(self.zeromq_subscribe_thread.ident, 0)
+        self.logger.debug('[D] Successfully killed thread ' + str(self.zeromq_subscribe_thread.ident))
 
     def process_cav_trajectory(self, action):
         # Determine the next trajectory and FEC for the CAV
@@ -255,6 +252,7 @@ class EnvironmentUPC(gym.Env):
         elif not fec_resource_ok:  # Resources not OK
             self.reward -= 100
             self.terminated = True
+            self.logger.warning('[!] Not enough available resources!')
 
     def check_episode_ending(self, truncated, vnf_and_cav_info_copy):
         # CAV reaches destination

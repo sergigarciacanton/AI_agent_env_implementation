@@ -2,8 +2,8 @@
 Vehicle) class with various methods for managing its state."""
 
 # DEPENDENCIES
-from Utils.vnf_generator import VNF
-from Utils.graph_upc import get_graph
+from vnf_generator import VNF
+from graph_upc import get_graph
 import networkx as nx
 
 

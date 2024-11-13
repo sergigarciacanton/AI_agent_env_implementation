@@ -14,7 +14,7 @@ import copy
 import gymnasium as gym
 from colorlog import ColoredFormatter
 from CAV import CAV
-from Utils.graph_upc import get_graph
+from graph_upc import get_graph
 from typing import Optional, Dict, Any, Tuple
 from config import (
     TIMESTEPS_LIMIT,

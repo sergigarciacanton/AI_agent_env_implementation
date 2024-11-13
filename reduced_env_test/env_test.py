@@ -16,8 +16,8 @@ from config import (
     FEC_MAX_RAM,
     FEC_MAX_BW,
     FEC_MAX_GPU,
-NODES_2_TRAIN,
-BACKGROUND_VEHICLES_ROUTE_NODES
+    NODES_2_TRAIN,
+    BACKGROUND_VEHICLES_ROUTE_NODES
 )
 from reduced_env_test.upc_graph import get_graph
 

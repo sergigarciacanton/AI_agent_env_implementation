@@ -23,7 +23,7 @@ from reduced_env_test.config_test import NODES_2_TRAIN, MODEL_PATH, SERGI_PLOTS
 from reduced_env_test.upc_graph import get_graph
 import os
 import re
-from prometheus_client import start_http_server, Gauge
+from prometheus_client import start_http_server, Gauge, Histogram
 
 np.set_printoptions(threshold=sys.maxsize)
 
@@ -603,6 +603,7 @@ class RAINBOW:
 
         #Prometheus metrics
         self.agent_time = Gauge('Agent_time', 'Time elapsed until the agent gives an action')
+        self.agent_histogram = Histogram('Agent_histogram', 'Histogram of agent time', buckets=[0.5,1,1.5,2,2.5,3,3.5,4,4.5,5])
 
         # for name , param in self.dqn.named_parameters():
         #     if 'weight' in name:
@@ -677,7 +678,7 @@ class RAINBOW:
             self.experience += [reward, next_state, done]
 
         # N-step transition
-        if self.use_n_step:
+        if self.use_n_step and not self.is_test:
             one_step_transition = self.memory_n.store(*self.experience)
         # 1-step transition
         else:
@@ -910,7 +911,7 @@ class RAINBOW:
         except FileNotFoundError as e:
             raise FileNotFoundError(f"Model file not found at {model_path}.") from e
 
-    def train(self, max_steps: int, warm_up_batches: int, plotting_interval: int = 10000, monitor_training: int = 1000,
+    def train(self, max_steps: int, warm_up_batches: int, plotting_interval: int = 100000, monitor_training: int = 1000,
               saving_model: int = 1000, ):
         """
         Train the DQNAgent.
@@ -926,6 +927,15 @@ class RAINBOW:
 
         self.is_test = False
         start_http_server(addr='10.2.20.1', port=8000)
+
+        #Load histogram data
+        try:
+            with open("agent_time.txt", 'r') as file:
+                lines = file.readlines()
+                for line in lines:
+                    self.agent_histogram.observe(float(line.strip()))
+        except FileNotFoundError:
+            print("The agent time log file does not exist")
 
         # Initial observation from the reseted environment
         obs, _ = self.env.reset(seed=self.seed)
@@ -946,8 +956,11 @@ class RAINBOW:
             # Get action for obs and retrieve env response
             start_time = time.time()
             action = self.select_action(obs)
-            end_time = time.time()
-            self.agent_time.set((end_time - start_time)*1000)
+            t_elapsed = (time.time() - start_time)*1000
+            self.agent_time.set(t_elapsed)
+            self.agent_histogram.observe(t_elapsed)
+            with open("agent_time.txt", 'a') as file:
+                file.write(f"{t_elapsed}\n")
             next_obs, reward, done, info = self.step(action)
             obs = next_obs
             score += reward
@@ -1032,20 +1045,20 @@ agent = RAINBOW(
     replay_buff_size=1000000,
     batch_size=10,
     target_update=1000,
-    learning_rate=0.0001,
+    learning_rate=0.0005,
     tau=0.85,
-    gamma=0.85,
-    n_step=11,
+    gamma=0.75,
+    n_step=10,
     in_features=19,
     out_features=19,
-    alpha=0.5,
+    alpha=0.3,
     beta=0.4,
     v_max=300,
-    v_min=0,  # NO NEGATIVE VALUES!!!!
-)
-agent.load_model()
 
-agent.train(max_steps=200000, warm_up_batches=2000)
+)
+agent.load_model('/home/user/Documents/AI_agent_env_implementation/Agents/Models/Rainbow/rainbow_250.893.pt')
+
+agent.train(max_steps=3000000, warm_up_batches=20000)
 
 # ----------------------------------- EVALUATE -----------------------------------
 # agent = RAINBOW(
@@ -1064,5 +1077,5 @@ agent.train(max_steps=200000, warm_up_batches=2000)
 #     v_max=300,
 #     v_min=0,
 # )
-# agent.load_model()
+# agent.load_model('/home/user/Documents/AI_agent_env_implementation/Agents/Models/Rainbow/rainbow_250.893.pt')
 # agent.evaluate_model(ENV)
